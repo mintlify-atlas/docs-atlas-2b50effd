@@ -1,0 +1,183 @@
+---
+title: "Architecture"
+description: "How the agent, server, and admin UI work together."
+---
+
+open-attest has three components: a Rust agent that runs on employee devices, a Cloudflare Workers server that stores and verifies attestations, and a React admin UI served from the same Worker.
+
+```
+Agent (Rust)  -->  Server (Cloudflare Workers + D1)  -->  Your GRC / Screenata
+                          |
+                     Admin UI (React)
+```
+
+<CardGroup cols={2}>
+  <Card title="Agent" icon="terminal" href="/agent/commands">
+    Rust binary. Runs as a background daemon. Collects posture checks, signs attestations with Ed25519, and submits them to the server.
+  </Card>
+  <Card title="Server" icon="server" href="/server/deployment">
+    TypeScript on Cloudflare Workers. Stores attestations in D1 (SQLite). Verifies Ed25519 signatures. Exposes REST API.
+  </Card>
+  <Card title="Admin UI" icon="chart-bar" href="/server/admin-ui">
+    React SPA built with shadcn/ui. Device list, compliance status, credential management. Served as static assets from the same Worker.
+  </Card>
+  <Card title="Screenata (optional)" icon="file-export" href="/guides/trust-model">
+    Maps raw posture data to SOC 2 controls, evaluates policy thresholds, and generates auditor-ready evidence exports.
+  </Card>
+</CardGroup>
+
+## Agent
+
+The agent is a statically-linked Rust binary that supports macOS, Windows, and Linux.
+
+### Enrollment
+
+When a device enrolls for the first time:
+
+1. The agent generates an Ed25519 keypair and stores the private key locally
+2. It sends the public key, hostname, platform, and platform version to the server via `POST /v1/agents/enroll`
+3. The server registers the device and returns an `agent_id`, `key_id`, and configuration (heartbeat and snapshot intervals)
+4. The agent saves the configuration to disk and installs the background daemon
+
+The private key never leaves the device.
+
+### Daemon behavior
+
+After enrollment, the agent runs as a background daemon with three independent timers:
+
+| Timer | Default interval | What it does |
+|---|---|---|
+| Heartbeat | Configurable (set by server at enrollment) | Sends a signed heartbeat to update `last_seen_at` on the server |
+| Snapshot | Configurable (set by server at enrollment) | Collects all 13 posture checks, signs the payload, and submits an attestation |
+| Drift check | 10 minutes | Compares current posture against the last snapshot; submits an immediate attestation if any check value has changed |
+
+The daemon logs to stderr and does not require user interaction.
+
+### Retry queue
+
+If the server is unreachable when an attestation is due, the agent writes the signed payload to a local retry queue on disk. On the next successful heartbeat, the agent drains the queue and submits all pending attestations.
+
+Old entries are evicted from the queue after **7 days**.
+
+### Posture collection
+
+The agent calls `collect_all()` to run all 13 checks. Each check returns a `CheckResult` with:
+
+- `key` — machine-readable identifier (e.g., `disk_encryption.enabled`)
+- `value` — typed value: `Bool`, `Int`, `Str`, or `StringList`
+- `observed_at` — ISO 8601 timestamp
+- `source` — the system API or command used to collect the value
+
+See [Posture checks](/agent/posture-checks) for the full list and platform-specific implementations.
+
+### Signing
+
+Before submission, the agent builds an `AttestationPayload` containing agent metadata, device identity anchors (hardware UUID), the current user, and all check results. The payload is serialized to JSON, signed with the device's Ed25519 private key, and sent alongside the signature in the `POST /v1/attestations` request body.
+
+## Server
+
+The server is a TypeScript application running on Cloudflare Workers with a D1 (SQLite) database managed through Drizzle ORM.
+
+### Database schema
+
+The server stores five tables:
+
+| Table | Purpose |
+|---|---|
+| `agents` | Registered devices, public keys, enrollment metadata |
+| `enrollment_tokens` | Multi-use tokens for enrolling new devices |
+| `attestations` | Full signed attestation payloads |
+| `device_checks` | Latest posture check values per device (upserted on each attestation) |
+| `admin_api_keys` | Hashed API keys for admin and integration access |
+
+### Request routing
+
+All routes are handled in a single `route()` function. The server uses path matching directly — no framework.
+
+| Auth method | Used by |
+|---|---|
+| `ADMIN_SECRET` header | Admin bootstrap endpoints (`/v1/admin/*`) |
+| API key (`Authorization: Bearer`) | Device query endpoints (`/v1/devices`, `/v1/attestations`) |
+| Ed25519 signature | Agent endpoints (`/v1/agents/enroll`, `/v1/attestations`, `/v1/heartbeat`) |
+| None | Health check, enrollment page, admin UI static assets |
+
+### Signature verification
+
+When the server receives an attestation, it:
+
+1. Looks up the `agent_id` in the `agents` table
+2. Retrieves the registered `public_key`
+3. Verifies the Ed25519 signature over the raw request body
+4. Rejects the request with `401` if verification fails
+
+This ensures every stored attestation was produced by the enrolled agent and has not been modified in transit.
+
+### Admin UI serving
+
+The admin UI is built as a React SPA and bundled into `admin/dist/`. It is deployed as a static asset binding (`ASSETS`) alongside the Worker. Requests to `/admin/*` are served from the asset binding, with a fallback to `index.html` for client-side routing.
+
+## Admin UI
+
+The admin UI is a React single-page application built with [shadcn/ui](https://ui.shadcn.com/) components. It communicates with the Worker API directly from the browser.
+
+Features:
+
+- **Device list** — all enrolled devices with last-seen timestamp and compliance summary
+- **Device detail** — per-device posture check values with pass/fail status
+- **Compliance summary** — org-wide view of how many devices pass each check
+- **Enrollment tokens** — create tokens with configurable max-device limits
+- **API keys** — create and revoke API keys for integrations
+- **Admin stats** — server version, total devices, attestation counts
+
+The admin UI is protected in production by setting the `ADMIN_SECRET` environment variable. For stronger access control, see [Securing the admin UI](/server/securing-admin).
+
+## Data flow
+
+The full lifecycle of a posture attestation:
+
+```
+1. Enrollment
+   Device  -->  POST /v1/agents/enroll  -->  Server
+                (token + public key)          registers agent, returns agent_id
+
+2. Daemon starts
+   Agent installs LaunchAgent / Service / systemd unit
+   Daemon loop begins: heartbeat + snapshot timers
+
+3. Posture collection (every snapshot interval)
+   Agent  -->  collect_all()  -->  CheckResult[]
+   Agent  -->  serialize payload  -->  sign with Ed25519 private key
+
+4. Attestation submission
+   Agent  -->  POST /v1/attestations  -->  Server
+                (payload + signature)         verifies signature
+                                              stores attestation
+                                              upserts device_checks
+
+5. Heartbeat (every heartbeat interval)
+   Agent  -->  POST /v1/heartbeat  -->  Server
+                (signed heartbeat)             updates last_seen_at
+
+6. Drift check (every 10 minutes)
+   Agent  -->  collect_all()  -->  compare to last snapshot
+   If any value changed  -->  immediate attestation submission
+
+7. API access
+   GRC tool / Screenata  -->  GET /v1/devices/:id  -->  Server
+                              (API key auth)              returns latest posture
+```
+
+## Security model
+
+open-attest uses Ed25519 signatures to prove attestation authenticity and integrity:
+
+- **Origin authenticity**: The server can verify that an attestation was submitted by the specific enrolled agent, because only that agent holds the private key.
+- **Record integrity**: Any modification to the attestation payload after signing will fail signature verification.
+
+**Important limitation**: Attestations are self-reported. The agent runs on the device it is attesting. A fully compromised device could produce false attestation data. Signatures prove the payload came from the registered agent and has not been tampered with in transit — they do not prove the device is uncompromised.
+
+For a detailed discussion of this trust model, see [Trust model](/guides/trust-model).
+
+<Note>
+  open-attest gives you the raw posture data. [Screenata](https://screenata.com) adds control mapping, policy evaluation, drift tracking, and auditor-ready evidence exports on top of the open-attest API.
+</Note>

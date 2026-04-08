@@ -1,0 +1,131 @@
+---
+title: "Authentication"
+description: "How to authenticate with the open-attest API."
+---
+
+The open-attest API uses three credential types depending on what you're doing. Choose the one that matches your use case.
+
+| Credential | Used for | Format |
+|------------|----------|--------|
+| Admin secret | Bootstrap operations (creating tokens, creating API keys) | Arbitrary string set via `wrangler secret` |
+| API key | Reading device data, integrating with GRC tools | `oak_<random>` |
+| Enrollment token | Enrolling new agents | `oat_<random>` |
+| Agent signature | Submitted automatically by the agent (not for human use) | Ed25519 |
+
+---
+
+## Admin secret
+
+The admin secret is a shared secret you set once when deploying the server. It provides unrestricted access to all admin endpoints.
+
+**Set it during deployment:**
+
+```bash
+wrangler secret put ADMIN_SECRET
+```
+
+**Pass it in the `Authorization` header:**
+
+```
+Authorization: Bearer <ADMIN_SECRET>
+```
+
+<Warning>
+The admin secret grants full control over the server. Only use it from secure environments — server-side scripts, CI pipelines, or a trusted admin machine. Never embed it in client-side code or share it with agents.
+</Warning>
+
+Use the admin secret for:
+- Creating API keys (`POST /v1/admin/api-keys`)
+- Creating and listing enrollment tokens (`POST /v1/admin/tokens`, `GET /v1/admin/tokens`)
+- Viewing server status (`GET /v1/admin/status`)
+
+---
+
+## API keys
+
+API keys are long-lived credentials for integrations that need to read device and attestation data. They're the right choice for connecting open-attest to a GRC tool like Screenata, or for querying devices from your own scripts.
+
+**Create an API key using the admin secret:**
+
+```bash
+curl -X POST https://your-worker.workers.dev/v1/admin/api-keys \
+  -H "Authorization: Bearer $ADMIN_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"org_id": "your-org", "label": "screenata-integration"}'
+```
+
+<Note>
+The API key value is only returned once in the response. Copy it immediately and store it in a secrets manager — you cannot retrieve it again.
+</Note>
+
+**Pass it in the `Authorization` header on subsequent requests:**
+
+```bash
+curl https://your-worker.workers.dev/v1/devices \
+  -H "Authorization: Bearer oak_..."
+```
+
+Use API keys for:
+- Listing and reading devices (`GET /v1/devices`, `GET /v1/devices/:id`)
+- Reading attestations (`GET /v1/attestations/:id`)
+- Revoking agents (`POST /v1/agents/revoke`)
+
+---
+
+## Enrollment tokens
+
+Enrollment tokens are single-use or multi-use tokens that authorize a new agent to register with the server. You create them via the admin API or the admin UI, then distribute them to employees.
+
+**Token format:** `oat_<random>`
+
+Tokens expire after their configured TTL and, if set to single-use, are invalidated after the first successful enrollment.
+
+Enrollment tokens are passed in the request body (not as an `Authorization` header):
+
+```json
+{
+  "token": "oat_...",
+  "public_key": "...",
+  "hostname": "alice-macbook",
+  "platform": "macos",
+  "platform_version": "14.4.1",
+  "identity_anchors": {}
+}
+```
+
+In practice, the `open-attest` CLI handles this automatically when a user runs `open-attest enroll --token <TOKEN>`.
+
+---
+
+## Agent signatures (internal — not for human operators)
+
+Agent endpoints (`POST /v1/attestations`, `POST /v1/heartbeat`, `POST /v1/agents/rekey`) are authenticated using Ed25519 signatures. The agent signs the request body with its private key, which never leaves the device.
+
+These headers are set automatically by the agent:
+
+| Header | Value |
+|--------|-------|
+| `X-Agent-Id` | The agent's UUID assigned at enrollment |
+| `X-Attestation-Signature` | Base64-encoded Ed25519 signature over the raw request body |
+
+<Info>
+You do not need to handle agent signatures manually. The `open-attest` agent manages key generation, enrollment, and signing internally. This section is provided for transparency and for anyone building a custom agent.
+</Info>
+
+---
+
+## Auth errors
+
+If credentials are missing or invalid, the API returns a `403 FORBIDDEN` response:
+
+```json
+{
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "Missing or invalid Authorization header",
+    "details": {}
+  }
+}
+```
+
+For signature failures, the response uses `401 INVALID_SIGNATURE`. See [API overview](/api/overview) for the full error code reference.

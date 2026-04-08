@@ -1,0 +1,100 @@
+---
+title: "Introduction"
+description: "What open-attest is, why it exists, and how it fits into SOC 2 compliance."
+---
+
+## The problem
+
+Startups preparing for SOC 2 need to show auditors that employee laptops meet basic security requirements: disk encryption enabled, firewall on, screen lock configured, EDR present. The usual ways to collect that evidence are:
+
+- **Manual screenshots** — employees take screenshots of System Preferences and paste them into a spreadsheet. Doesn't scale, easy to fake, not tamper-evident.
+- **Full MDM** (Jamf, Intune, Kandji) — powerful, but designed for IT departments managing hundreds of devices. Complex to deploy, expensive, and far more than a 20-person startup needs.
+- **Compliance platforms** (Vanta, Drata, Secureframe) — integrate with MDM or require their own agent. Monthly cost often exceeds $1,000 for small teams.
+
+open-attest is built for teams of 5–50 where the CTO is also the IT admin. It collects signed endpoint evidence and exposes it through an open API — no MDM, no vendor lock-in, no monthly fee.
+
+## Who it's for
+
+open-attest fits your team if:
+
+- You're preparing for SOC 2 Type I or Type II
+- You have 5–50 employees on macOS, Windows, or Linux
+- You don't need (or want) full device management
+- You want to own your compliance data and not depend on a SaaS vendor
+
+## What it does
+
+open-attest has two parts: an agent that runs on employee laptops, and a server that stores and serves the evidence.
+
+The **agent** is a Rust binary that:
+
+1. Runs as a background daemon, starting automatically on boot
+2. Collects 13 posture checks on each device — disk encryption, firewall, screen lock, EDR presence, OS version, and more
+3. Signs every attestation payload with an Ed25519 private key unique to the device
+4. Submits attestations to the server on a configurable schedule (default: hourly)
+5. Detects posture drift and submits an immediate attestation when a check value changes
+
+The **server** is a Cloudflare Workers application that:
+
+1. Stores signed attestations in a D1 SQLite database
+2. Verifies every attestation signature against the device's registered public key
+3. Exposes a REST API for querying device posture and compliance status
+4. Serves a React admin UI for managing devices, credentials, and enrollment tokens
+
+## Key benefits
+
+<CardGroup cols={2}>
+  <Card title="Free to run" icon="circle-dollar-to-slot" href="/server/deployment">
+    Runs on Cloudflare Workers and D1. The free tier handles ~50 devices with no credit card required.
+  </Card>
+  <Card title="Zero infrastructure" icon="cloud" href="/server/deployment">
+    No servers to provision, no databases to manage, no Docker. Deploy in one command.
+  </Card>
+  <Card title="One-command install" icon="terminal" href="/agent/installation">
+    Download the binary and run `open-attest enroll`. The daemon installs itself and starts reporting.
+  </Card>
+  <Card title="Open source" icon="github" href="/guides/trust-model">
+    Every check, every byte sent to the server is in the repository. Audit the code or fork it.
+  </Card>
+  <Card title="Signed attestations" icon="signature" href="/guides/trust-model">
+    Ed25519 signatures make every attestation tamper-evident and verifiable by auditors.
+  </Card>
+  <Card title="Cross-platform" icon="laptop" href="/agent/posture-checks">
+    Native support for macOS, Windows, and Linux with platform-specific check implementations.
+  </Card>
+</CardGroup>
+
+## How it compares
+
+| | open-attest | Full MDM | Compliance SaaS |
+|---|---|---|---|
+| Cost | Free | $4–8 / device / month | $500–2,000 / month |
+| Infrastructure | None (Cloudflare Workers) | Requires provisioning | Hosted by vendor |
+| Device management | Posture reporting only | Full control | Varies |
+| Data ownership | You own it | You own it | Vendor holds it |
+| Open source | Yes | No | No |
+| Setup time | < 10 minutes | Hours to days | Hours |
+
+open-attest does not replace MDM. It doesn't push configuration, enforce policies, or remote-wipe devices. It reports posture facts and signs them so you can prove to an auditor what state a device was in at a point in time.
+
+## Screenata integration
+
+open-attest gives you the raw posture data. [Screenata](https://screenata.com) turns it into audit-ready compliance evidence:
+
+- Map endpoint checks to SOC 2 controls (CC6.1, CC6.8, etc.)
+- Set pass/fail thresholds per organization
+- Track drift and exceptions over time
+- Generate evidence summaries and export PDF/CSV reports for auditors
+
+open-attest + Screenata covers endpoint compliance end-to-end without requiring an MDM.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Deploy the server and enroll your first device in under 10 minutes.
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how the agent, server, and admin UI work together.
+  </Card>
+</CardGroup>

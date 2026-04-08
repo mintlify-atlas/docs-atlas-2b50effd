@@ -1,0 +1,84 @@
+---
+title: "Trust model"
+description: "What open-attest attestations prove — and what they don't."
+---
+
+Understanding what open-attest attestations actually guarantee helps you use the tool accurately and explain it clearly to auditors.
+
+## What signatures prove
+
+Every attestation submitted by the agent is signed with an Ed25519 keypair. The keypair is generated on the device during enrollment and the private key never leaves the device.
+
+When the server verifies a signature, it confirms two things:
+
+1. **Origin authenticity:** The attestation came from the specific registered agent that holds the corresponding private key — not from a different device or a spoofed request.
+2. **Payload integrity:** The posture data has not been modified in transit. Any change to the payload after signing would invalidate the signature.
+
+The server stores attestations in tamper-evident form. A signed attestation record is proof that, at the moment it was submitted, a registered agent with a valid key sent that specific payload.
+
+## What signatures do NOT prove
+
+Signatures prove origin and integrity, not the truthfulness of the reported values.
+
+open-attest attestations are **self-reported posture statements**. The agent runs on the endpoint, collects facts using system APIs, and reports what it sees. This means:
+
+- **A compromised endpoint can lie.** An agent running under a fully compromised OS with root access could theoretically report false values — for example, claiming disk encryption is enabled when it is not. The Ed25519 signature would still be valid because the agent's key is intact.
+- **The signature proves who sent the data, not that the data is accurate.** Origin authenticity and factual accuracy are separate properties.
+
+This is not unique to open-attest. It is the same trust model used by virtually every endpoint compliance tool that relies on agent self-reporting, including commercial MDM and EDR platforms.
+
+## The trust chain
+
+```
+Endpoint generates Ed25519 keypair at enrollment
+         |
+         v
+Public key registered on server, private key stays on device
+         |
+         v
+Agent signs attestation payload with private key before submitting
+         |
+         v
+Server verifies signature against registered public key
+         |
+         v
+Verified attestation stored in tamper-evident D1 database
+```
+
+The chain establishes that a specific registered device submitted a specific payload at a specific time, and that the payload was not altered after signing.
+
+## Why this is still valuable for SOC 2
+
+SOC 2 auditors understand that endpoint compliance evidence from agent-based tools is self-reported. What they are evaluating is:
+
+- **Intent:** Does the organization have policies requiring disk encryption, firewall, screen lock, etc.?
+- **Process:** Is the organization consistently monitoring compliance and collecting evidence?
+- **Coverage:** Are all devices enrolled and reporting regularly?
+- **History:** Is there a record of compliance over time, not just a point-in-time screenshot?
+
+open-attest provides all of these. Consistent, signed, timestamped attestation history from enrolled devices is exactly the kind of evidence that satisfies endpoint compliance controls in a SOC 2 Type II audit.
+
+<Info>
+  When talking to auditors, describe attestations accurately: "signed, self-reported posture data from registered agents." Auditors familiar with tools like Jamf, Kandji, or CrowdStrike will recognize this model immediately.
+</Info>
+
+## Recommended mitigations
+
+If you want higher assurance than self-reporting provides, layer additional controls:
+
+| Mitigation | What it adds |
+|------------|-------------|
+| **MDM enrollment** | MDM can enforce configuration profiles that are harder to bypass than agent-reported values. Pair with open-attest for evidence collection. |
+| **Cloudflare Access on the admin UI** | Prevents unauthorized access to attestation data and the admin interface. See [securing the admin UI](/server/securing-admin). |
+| **Anomaly review** | Periodically review attestation history in the admin UI for unexpected changes in posture values. The agent reports drift immediately when a check value changes. |
+| **Token and key rotation** | Rotate enrollment tokens and agent keys regularly to limit the blast radius of a compromised credential. |
+
+<Tip>
+  For teams with a higher compliance bar, pairing open-attest with a lightweight MDM (such as Mosyle for macOS) gives you both enforced configuration and signed evidence collection. open-attest is complementary to MDM, not a replacement.
+</Tip>
+
+## Comparison to commercial tools
+
+Most commercial endpoint compliance tools — Jamf, Kandji, Kolide, CrowdStrike Falcon, Microsoft Intune — use the same fundamental trust model: an agent on the endpoint reports what it observes, and the platform verifies the agent's identity. The underlying limitation is the same.
+
+What open-attest adds beyond basic self-reporting is the Ed25519 signature chain, which gives you tamper-evidence at the transport and storage layer. An attestation record in D1 cannot be quietly edited after the fact without the signature becoming invalid. That property, combined with consistent monitoring, is what makes the evidence useful in an audit.

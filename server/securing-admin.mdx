@@ -1,0 +1,109 @@
+---
+title: "Securing the admin UI"
+description: "Protect the admin dashboard with Cloudflare Access SSO and MFA."
+---
+
+By default, the admin UI at `/admin/` is protected by your `ADMIN_SECRET`. For additional security, you can put the admin UI behind Cloudflare Access, which adds SSO and MFA with no code changes required.
+
+## Why add Cloudflare Access
+
+`ADMIN_SECRET` is a shared secret — if it leaks, anyone with it can access the admin UI. Cloudflare Access adds a second layer: even with a valid `ADMIN_SECRET`, a user must first authenticate through your identity provider before the request reaches your Worker.
+
+This gives you:
+
+- **SSO** — log in with your existing Google Workspace, GitHub, Okta, or Azure AD account
+- **MFA** — enforce multi-factor authentication via the identity provider
+- **Audit logs** — Cloudflare records every access attempt
+- **IP/country restrictions** — optionally restrict access by network location
+
+## Setting up Cloudflare Access
+
+<Steps>
+
+<Step title="Open Zero Trust in the Cloudflare dashboard">
+  Go to the [Cloudflare dashboard](https://dash.cloudflare.com) → **Zero Trust** → **Access** → **Applications**.
+</Step>
+
+<Step title="Add an application">
+  Click **Add an application** → **Self-hosted**.
+</Step>
+
+<Step title="Configure the application">
+  Set the following fields:
+
+  - **Application name:** `open-attest admin` (or any label you prefer)
+  - **Session duration:** Your preferred session length (e.g., 24 hours)
+  - **Domain:** Your Worker URL, e.g. `open-attest-server.your-subdomain.workers.dev`
+  - **Path:** `/admin/*`
+
+  Using `/admin/*` as the path scopes the Access policy to the admin UI only. Agent endpoints at `/v1/*` and the enrollment page at `/enroll/*` remain accessible without SSO.
+</Step>
+
+<Step title="Add an access policy">
+  In the **Policies** section, create a policy:
+
+  - **Policy name:** `Team members`
+  - **Action:** Allow
+  - **Include rule:** Emails ending in `@your-company.com`
+
+  This allows anyone with a `@your-company.com` email address (verified through the identity provider) to access the admin UI after authenticating.
+
+  <Tip>
+    You can restrict access further with additional rules — for example, allow
+    only specific email addresses rather than the entire domain.
+  </Tip>
+</Step>
+
+<Step title="Save and verify">
+  Click **Save**. Cloudflare immediately enforces the policy. Open your admin URL in a private browser window to confirm the Access login screen appears before the admin UI.
+</Step>
+
+</Steps>
+
+## Supported identity providers
+
+Cloudflare Access supports a wide range of identity providers:
+
+- Google Workspace
+- GitHub
+- Okta
+- Microsoft Azure AD
+- Any OIDC-compatible provider
+- Any SAML 2.0-compatible provider
+
+Configure your identity provider under **Zero Trust** → **Settings** → **Authentication**.
+
+## What remains unprotected
+
+Cloudflare Access only applies to the path you configure — `/admin/*`. The following paths remain publicly accessible, which is intentional:
+
+| Path | Reason |
+|---|---|
+| `/v1/*` | Agent endpoints. Agents submit attestations and heartbeats without interactive login. They authenticate using Ed25519 signatures. |
+| `/enroll/*` | Enrollment page. Employees visit this link to install the agent. It is public by design but requires a valid token to enroll. |
+| `/health` | Health check endpoint. Used by monitoring. |
+
+<Note>
+  Agents never access `/admin/`. Their authentication is cryptographic (Ed25519
+  signatures), not credential-based. Cloudflare Access protecting `/admin/*` has
+  no impact on agent functionality.
+</Note>
+
+## Free plan coverage
+
+The Cloudflare Zero Trust free plan covers up to **50 users** — sufficient for the teams open-attest is designed for.
+
+## Security model
+
+Adding Cloudflare Access is defense in depth. The security layers stack as follows:
+
+1. **Cloudflare Access** — must authenticate through your identity provider (SSO + MFA) to reach the Worker at all
+2. **ADMIN_SECRET** — must present the correct secret to call admin API endpoints or log into the admin UI
+
+An attacker who obtains your `ADMIN_SECRET` still cannot access the admin UI without passing SSO. An attacker who bypasses SSO (e.g., via a misconfigured policy) still cannot perform admin actions without the secret.
+
+<Tip>
+  After setting up Cloudflare Access, consider rotating your `ADMIN_SECRET` to a
+  new strong value. This ensures any previously issued sessions are invalidated.
+  Run `wrangler secret put ADMIN_SECRET` to rotate.
+</Tip>

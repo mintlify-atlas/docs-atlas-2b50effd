@@ -1,0 +1,156 @@
+---
+title: "Configuration"
+description: "Configure the open-attest server for your organization."
+---
+
+Most server behavior is configured through two mechanisms: Wrangler secrets (for sensitive values) and `wrangler.toml` (for deployment settings). This page covers everything an admin can control.
+
+## ADMIN_SECRET
+
+`ADMIN_SECRET` is the master credential for the server. It authenticates you to:
+
+- The admin UI login screen
+- All `/v1/admin/*` API endpoints (creating API keys, creating enrollment tokens, reading server status)
+
+Set or rotate it with:
+
+```bash
+wrangler secret put ADMIN_SECRET
+```
+
+Wrangler prompts you to enter the value interactively so it is never visible in your shell history.
+
+<Warning>
+  Keep your admin secret secure. Anyone with this secret has full administrative
+  access to the server, including the ability to create enrollment tokens and API
+  keys. If it is compromised, rotate it immediately by running
+  `wrangler secret put ADMIN_SECRET` with a new value.
+</Warning>
+
+### Rotating ADMIN_SECRET
+
+```bash
+wrangler secret put ADMIN_SECRET
+# enter your new secret at the prompt
+```
+
+The new secret takes effect immediately — no redeploy required. The old secret is invalidated instantly.
+
+## API keys
+
+API keys allow external systems — GRC tools, Screenata, custom scripts — to read device posture data from the server. They authenticate read endpoints (`/v1/devices`, `/v1/attestations`).
+
+API keys are distinct from `ADMIN_SECRET`: they can only read data, not create tokens or manage the server. You can issue multiple API keys with different labels and rotate or revoke them individually without disrupting agents or other integrations.
+
+**Create an API key from the admin UI:** Go to **Credentials** → **API Keys** → **Create API Key**, enter a label, and save.
+
+**Create an API key via the API:**
+
+```bash
+curl -X POST https://your-worker.workers.dev/v1/admin/api-keys \
+  -H "Authorization: Bearer $ADMIN_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"org_id": "my-company", "label": "screenata-integration"}'
+```
+
+```json
+{
+  "api_key": "oak_a1b2c3d4e5f6...",
+  "org_id": "my-company",
+  "label": "screenata-integration",
+  "note": "Save this key — it cannot be retrieved again."
+}
+```
+
+<Warning>
+  Save the API key value immediately. The server stores only a hash — the
+  plaintext key cannot be retrieved after creation.
+</Warning>
+
+**Rotating an API key:** Delete the old key from the Credentials section and create a new one. Update the new key in any external systems that use it. Agents are unaffected — they authenticate with Ed25519 signatures, not API keys.
+
+## Enrollment tokens
+
+Enrollment tokens control which devices can register with your server. Each token has a configurable max use count and TTL.
+
+| Field | Default | Description |
+|---|---|---|
+| `max_uses` | 1 | Maximum number of devices that can enroll with this token. |
+| `expires_in_hours` | 24 | Time until the token expires. Devices can no longer enroll after expiry. |
+
+**Create a token from the admin UI:** Go to **Credentials** → **Enrollment Tokens** → **Create Enrollment Token**.
+
+**Create a token via the API:**
+
+```bash
+curl -X POST https://your-worker.workers.dev/v1/admin/tokens \
+  -H "Authorization: Bearer $ADMIN_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"org_id": "my-company", "max_uses": 50, "expires_in_hours": 48}'
+```
+
+```json
+{
+  "token": "oat_a1b2c3d4e5f6...",
+  "enroll_url": "https://your-worker.workers.dev/enroll/oat_a1b2c3d4e5f6...",
+  "org_id": "my-company",
+  "expires_at": "2024-01-03T12:00:00.000Z",
+  "expires_in_hours": 48,
+  "max_uses": 50
+}
+```
+
+Share the `enroll_url` with employees. Each device that enrolls via the link counts against `max_uses`. Once the token is exhausted or expired, it can no longer be used to enroll new devices — existing enrolled devices are unaffected.
+
+<Tip>
+  For a team rollout, create one token with `max_uses` set to the number of
+  devices you plan to enroll. For a single device, use `max_uses: 1` for tighter
+  control.
+</Tip>
+
+## wrangler.toml settings
+
+These settings live in `server/wrangler.toml` and control how your Worker is deployed.
+
+```toml
+name = "open-attest-server"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "admin/dist"
+binding = "ASSETS"
+html_handling = "none"
+not_found_handling = "none"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "open-attest"
+database_id = "your-database-id-here"
+migrations_dir = "drizzle/migrations"
+```
+
+| Field | Description |
+|---|---|
+| `name` | Your Worker name. Determines the `<name>.workers.dev` subdomain. Change this to something specific to your organization. |
+| `compatibility_date` | Cloudflare runtime compat date. Controls which platform APIs are available. |
+| `[assets].directory` | Directory of admin UI static files. Built to `admin/dist` by `npm run build:admin`. |
+| `[[d1_databases]].database_id` | The ID of your D1 database. Set this after running `wrangler d1 create open-attest`. |
+
+After editing `wrangler.toml`, redeploy for the changes to take effect:
+
+```bash
+npm run deploy:production
+```
+
+## Heartbeat and snapshot intervals
+
+The server tells agents how often to check in when they enroll. The current defaults are:
+
+| Interval | Value | Description |
+|---|---|---|
+| `heartbeat_interval_seconds` | 300 | How often the agent sends a lightweight heartbeat (5 minutes). |
+| `snapshot_interval_seconds` | 3600 | How often the agent collects and submits a full posture attestation (1 hour). |
+
+These intervals are returned to the agent in the enrollment response and stored in the agent's local config. Agents respect whatever the server configured at enrollment time.

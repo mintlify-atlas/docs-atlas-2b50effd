@@ -1,0 +1,102 @@
+---
+title: "macOS .pkg installer"
+description: "Build a macOS .pkg that installs and enrolls the agent automatically."
+---
+
+The `.pkg` installer is the recommended distribution method for non-technical employees. It installs the `open-attest` binary and runs enrollment automatically on install — no terminal, no commands, no instructions for the employee to follow.
+
+<Note>
+  The `.pkg` builder is macOS-only. Windows and Linux users should use the [CLI enrollment flow](/guides/team-enrollment).
+</Note>
+
+## Prerequisites
+
+- macOS with Xcode command-line tools installed (`xcode-select --install`)
+- Rust toolchain (`rustup`) installed — the script builds the agent binary from source
+- A valid enrollment token (see [team enrollment](/guides/team-enrollment) for how to create one)
+
+## Build the installer
+
+The builder lives at `agent/pkg/build-pkg.sh` in the repository.
+
+<Steps>
+  <Step title="Clone the repository (if you haven't already)">
+    ```bash
+    git clone https://github.com/screenata/open-attest.git
+    cd open-attest
+    ```
+  </Step>
+  <Step title="Run the builder">
+    ```bash
+    cd agent/pkg
+    ./build-pkg.sh --token <TOKEN> --server https://your-worker.workers.dev
+    ```
+
+    Replace `<TOKEN>` with the enrollment token you created in the admin UI.
+
+    The script:
+    1. Compiles the agent binary in release mode (`cargo build --release`)
+    2. Bundles it into a macOS package with a `postinstall` script
+    3. Embeds your token and server URL into the `postinstall` script
+    4. Outputs `open-attest.pkg` in the current directory
+  </Step>
+  <Step title="Verify the output">
+    ```bash
+    ls -lh open-attest.pkg
+    ```
+
+    A typical build produces a package around 5–10 MB.
+  </Step>
+</Steps>
+
+### Custom output filename
+
+Use `--output` to name the file differently:
+
+```bash
+./build-pkg.sh \
+  --token <TOKEN> \
+  --server https://your-worker.workers.dev \
+  --output open-attest-v2-acme.pkg
+```
+
+## What the installer does
+
+When an employee double-clicks the `.pkg` and clicks through the standard macOS installer:
+
+1. **Preinstall:** If a previous version of the agent is installed, it is cleanly uninstalled first.
+2. **Binary install:** `open-attest` is copied to `/usr/local/bin/open-attest`.
+3. **Enrollment:** The embedded token and server URL are used to run `open-attest enroll` automatically as the logged-in user.
+4. **Daemon install:** The agent installs a LaunchAgent so it starts on login and runs in the background.
+
+If enrollment fails (for example, the token is exhausted), the binary is still installed and the employee sees a message to run `open-attest enroll` manually. The install does not fail.
+
+## Distributing the package
+
+Once built, distribute `open-attest.pkg` through whichever channel fits your team:
+
+| Method | When to use |
+|--------|-------------|
+| Email attachment | Small teams, one-time rollout |
+| Internal file share | Self-service, employees install on their own schedule |
+| MDM push (Jamf, Mosyle, etc.) | Silent, zero-touch deployment at scale |
+
+<Tip>
+  If you use an MDM, you can push the `.pkg` silently without any employee interaction at all. This is the highest-assurance rollout path since it doesn't depend on employees taking action.
+</Tip>
+
+## Token management for batch rollouts
+
+Each installed `.pkg` uses one enrollment token slot. Set `max_uses` on your token to match the number of devices you plan to distribute to.
+
+For example, for a 40-person team:
+
+1. Create a token with `max_uses = 40` in the admin UI
+2. Build one `.pkg` with that token
+3. Distribute to all 40 employees
+
+If you later hire more people, create a new token and build a new `.pkg`. There is no need to rebuild for existing enrolled devices.
+
+<Warning>
+  Anyone who obtains the `.pkg` file can use it to enroll a device against your server, consuming a token slot. Distribute through trusted channels and set an appropriate `max_uses` cap.
+</Warning>

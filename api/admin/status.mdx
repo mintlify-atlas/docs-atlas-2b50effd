@@ -1,0 +1,98 @@
+---
+title: "Server status"
+description: "Get server health and device compliance statistics."
+---
+
+The status endpoint returns a real-time summary of server health and device compliance across all active agents.
+
+This endpoint requires the admin secret in the `Authorization` header.
+
+---
+
+## Get server status
+
+<br />
+
+**GET** `/v1/admin/status`
+
+Returns the server version and a compliance and availability breakdown across all enrolled devices.
+
+<Info>
+  A device is considered **compliant** only when all three checks pass: `disk_encryption.enabled`, `firewall.enabled`, and `screen_lock.password_required`. A device missing any check result is counted as non-compliant.
+</Info>
+
+<Info>
+  A device is considered **online** if it sent a heartbeat within the last 15 minutes.
+</Info>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Server health indicator. Always `"ok"` when the server is running normally.
+</ResponseField>
+
+<ResponseField name="version" type="string">
+  Current server version string (e.g. `"0.3.1"`).
+</ResponseField>
+
+<ResponseField name="stats" type="object">
+  Aggregate statistics across all agents and tokens.
+
+  <Expandable title="properties">
+    <ResponseField name="devices_total" type="integer">
+      Total number of active (non-revoked) enrolled devices.
+    </ResponseField>
+
+    <ResponseField name="devices_compliant" type="integer">
+      Number of active devices where `disk_encryption.enabled`, `firewall.enabled`, and `screen_lock.password_required` are all `true`.
+    </ResponseField>
+
+    <ResponseField name="devices_non_compliant" type="integer">
+      Number of active devices that fail one or more compliance checks, or have no check results on record.
+    </ResponseField>
+
+    <ResponseField name="devices_online" type="integer">
+      Number of active devices that sent a heartbeat within the last 15 minutes.
+    </ResponseField>
+
+    <ResponseField name="devices_offline" type="integer">
+      Number of active devices whose last heartbeat was more than 15 minutes ago, or that have never sent one.
+    </ResponseField>
+
+    <ResponseField name="agents_revoked" type="integer">
+      Total number of revoked agent records.
+    </ResponseField>
+
+    <ResponseField name="tokens_available" type="integer">
+      Number of enrollment tokens that are unused, not revoked, and not yet expired.
+    </ResponseField>
+
+    <ResponseField name="tokens_total" type="integer">
+      Total number of enrollment tokens ever created.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl https://your-worker.workers.dev/v1/admin/status \
+  -H "Authorization: Bearer $ADMIN_SECRET"
+```
+
+```json
+{
+  "status": "ok",
+  "version": "0.3.1",
+  "stats": {
+    "devices_total": 12,
+    "devices_compliant": 10,
+    "devices_non_compliant": 2,
+    "devices_online": 8,
+    "devices_offline": 4,
+    "agents_revoked": 1,
+    "tokens_available": 3,
+    "tokens_total": 5
+  }
+}
+```

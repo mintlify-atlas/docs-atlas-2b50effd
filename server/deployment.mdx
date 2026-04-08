@@ -1,0 +1,208 @@
+---
+title: "Deployment"
+description: "Deploy the open-attest server to Cloudflare Workers."
+---
+
+The open-attest server runs on Cloudflare Workers with a D1 SQLite database. There is no infrastructure to provision or maintain — Cloudflare handles everything.
+
+## Prerequisites
+
+- A Cloudflare account (free tier is sufficient)
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installed: `npm install -g wrangler`
+- Node.js 18 or later
+
+## Deploy the server
+
+<Tabs>
+
+<Tab title="One-click deploy">
+
+Click the button below to deploy directly from GitHub. Cloudflare clones the repository, runs the deploy script, provisions the D1 database, and sets a randomly generated admin secret automatically.
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/screenata/open-attest/tree/main/server)
+
+After deployment, Cloudflare displays your **admin secret** in the deployment log. Copy it now — you won't be able to retrieve it again.
+
+<Warning>
+  Save your admin secret immediately. It is shown once in the deployment output
+  and is required to create enrollment tokens and API keys.
+</Warning>
+
+</Tab>
+
+<Tab title="Manual deploy">
+
+<Steps>
+
+<Step title="Clone the repository">
+
+```bash
+git clone https://github.com/screenata/open-attest.git
+cd open-attest
+```
+
+</Step>
+
+<Step title="Install dependencies">
+
+```bash
+cd server
+npm install
+cd admin && npm install && npm run build && cd ..
+```
+
+This installs the server dependencies and builds the admin UI static assets.
+
+</Step>
+
+<Step title="Create the D1 database">
+
+```bash
+wrangler d1 create open-attest
+```
+
+The output includes a `database_id`. Save it — you need it in the next step.
+
+```
+✅ Successfully created DB 'open-attest'
+
+[[d1_databases]]
+binding = "DB"
+database_name = "open-attest"
+database_id = "de249f98-2c7a-474f-9104-431ad57d78e7"
+```
+
+</Step>
+
+<Step title="Update wrangler.toml">
+
+Open `server/wrangler.toml` and set the `database_id` under `[[d1_databases]]` to the value from the previous step:
+
+```toml
+[[d1_databases]]
+binding = "DB"
+database_name = "open-attest"
+database_id = "your-database-id-here"
+migrations_dir = "drizzle/migrations"
+```
+
+</Step>
+
+<Step title="Set the admin secret">
+
+```bash
+wrangler secret put ADMIN_SECRET
+```
+
+Enter a strong secret when prompted. This becomes your login for the admin UI and the credential for admin API calls.
+
+<Tip>
+  Use a password manager to generate a strong random secret (e.g., 32+ character
+  random string). You'll need this secret whenever you access the admin UI or
+  rotate credentials.
+</Tip>
+
+</Step>
+
+<Step title="Apply database migrations">
+
+```bash
+npm run db:migrate:production
+```
+
+This runs the Drizzle migrations against your D1 database, creating all required tables.
+
+</Step>
+
+<Step title="Deploy">
+
+```bash
+npm run deploy:production
+```
+
+This builds the admin UI, applies any pending migrations, and deploys the Worker. Your Worker URL is printed at the end of the output:
+
+```
+Deployed open-attest-server (1.23 sec)
+  https://open-attest-server.your-subdomain.workers.dev
+```
+
+</Step>
+
+</Steps>
+
+</Tab>
+
+</Tabs>
+
+## After deployment
+
+Open the admin UI in your browser:
+
+```
+https://open-attest-server.your-subdomain.workers.dev/admin/
+```
+
+Log in with your admin secret to confirm the server is running, then create an enrollment token to start enrolling devices. See the [quick start](/quickstart) guide for the full onboarding flow.
+
+## What wrangler.toml configures
+
+| Field | Description |
+|---|---|
+| `name` | Your Worker name. Determines the `<name>.workers.dev` subdomain. |
+| `compatibility_date` | Cloudflare runtime compatibility date. Controls which APIs are available. |
+| `[assets]` | Binding for the admin UI static assets (React SPA built to `admin/dist`). |
+| `[[d1_databases]]` | D1 database binding. Set `database_id` after creating the database. |
+
+`ADMIN_SECRET` is not stored in `wrangler.toml` — it is a Wrangler secret stored encrypted in Cloudflare and injected at runtime.
+
+## Free tier limits
+
+The Cloudflare free tier is sufficient for teams of up to ~50 devices:
+
+| Resource | Free tier limit |
+|---|---|
+| Workers requests | 100,000 / day |
+| D1 storage | 5 GB |
+| D1 row reads | 5 million / day |
+| D1 row writes | 100,000 / day |
+
+A team of 50 devices sending hourly attestations generates roughly 1,200 requests per day — well within free tier limits.
+
+## Local development
+
+Run the server locally against a local D1 instance:
+
+```bash
+cd server
+npm run db:migrate:local   # apply migrations to local D1
+npm run dev                # build admin UI + start local server
+```
+
+The server starts at `http://localhost:8787`. Set a local admin secret in `server/.dev.vars`:
+
+```
+ADMIN_SECRET=dev-secret-change-me
+```
+
+<Note>
+  `.dev.vars` is only used for local development. Never commit it to version
+  control — the `.gitignore` already excludes it.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="sliders" href="/server/configuration">
+    Configure enrollment tokens, API keys, and wrangler settings.
+  </Card>
+  <Card title="Admin UI" icon="layout-dashboard" href="/server/admin-ui">
+    Use the dashboard to manage devices and credentials.
+  </Card>
+  <Card title="Securing the admin UI" icon="lock" href="/server/securing-admin">
+    Add Cloudflare Access for SSO and MFA.
+  </Card>
+  <Card title="Team enrollment" icon="users" href="/guides/team-enrollment">
+    Create enrollment tokens and onboard your team.
+  </Card>
+</CardGroup>

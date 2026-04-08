@@ -1,0 +1,236 @@
+---
+title: "Submit attestation"
+description: "Upload a signed posture snapshot from an enrolled agent."
+---
+
+<Note>
+  The `open-attest` CLI calls this endpoint automatically. You only need to call it directly if you're building a custom agent or integration.
+</Note>
+
+An attestation is a cryptographically signed snapshot of all posture checks collected by the agent at a point in time. The server verifies the Ed25519 signature before storing the payload and updating per-device check state.
+
+---
+
+## Submit an attestation
+
+<br />
+
+**POST** `/v1/attestations`
+
+### Authentication
+
+Sign the raw request body with the agent's Ed25519 private key and include the following headers:
+
+| Header | Value |
+|--------|-------|
+| `X-Agent-Id` | The `agent_id` returned at enrollment. |
+| `X-Attestation-Signature` | Base64-encoded Ed25519 signature over the raw request body bytes. |
+
+### Request
+
+<ParamField path="schema_version" type="string" required>
+  Payload schema version. Must be `"1.0"`.
+</ParamField>
+
+<ParamField path="attestation_id" type="string" required>
+  Client-generated UUID identifying this attestation. Used for idempotency and retrieval.
+</ParamField>
+
+<ParamField path="collected_at" type="string" required>
+  ISO 8601 timestamp indicating when the checks were collected (e.g. `"2025-04-01T10:00:00Z"`).
+</ParamField>
+
+<ParamField path="agent" type="object" required>
+  Information about the agent binary that collected this snapshot.
+
+  <Expandable title="properties">
+    <ParamField path="agent.name" type="string" required>
+      Agent name (e.g. `"open-attest"`).
+    </ParamField>
+
+    <ParamField path="agent.version" type="string" required>
+      Agent version string (e.g. `"0.3.1"`).
+    </ParamField>
+
+    <ParamField path="agent.agent_id" type="string" required>
+      The `agent_id` assigned at enrollment.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="device" type="object" required>
+  Device identity information.
+
+  <Expandable title="properties">
+    <ParamField path="device.device_id" type="string" required>
+      Device identifier returned at enrollment (e.g. `dev_<uuid>` or `dev_<hardware_uuid>`).
+    </ParamField>
+
+    <ParamField path="device.hostname" type="string" required>
+      Current hostname of the device.
+    </ParamField>
+
+    <ParamField path="device.platform" type="string" required>
+      Operating system: `macos`, `windows`, or `linux`.
+    </ParamField>
+
+    <ParamField path="device.platform_version" type="string" required>
+      OS version string (e.g. `"14.4.1"`).
+    </ParamField>
+
+    <ParamField path="device.identity_anchors" type="object" required>
+      Hardware identity anchors.
+
+      <Expandable title="properties">
+        <ParamField path="device.identity_anchors.hardware_uuid" type="string">
+          Platform hardware UUID.
+        </ParamField>
+
+        <ParamField path="device.identity_anchors.serial_hash" type="string">
+          SHA-256 hash of the device serial number.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="user" type="object">
+  Currently logged-in user, if available.
+
+  <Expandable title="properties">
+    <ParamField path="user.username" type="string">
+      OS username (e.g. `"jsmith"`).
+    </ParamField>
+
+    <ParamField path="user.email" type="string">
+      User email address, if resolvable by the agent.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="checks" type="object[]" required>
+  Array of posture check results collected during this snapshot.
+
+  <Expandable title="CheckResult properties">
+    <ParamField path="checks[].key" type="string" required>
+      Check identifier (e.g. `"disk_encryption.enabled"`, `"os.auto_update"`).
+    </ParamField>
+
+    <ParamField path="checks[].value" type="object" required>
+      Tagged union representing the check result. The `type` field determines the type of `value`.
+
+      Supported variants:
+
+      | `type` | `value` type |
+      |--------|-------------|
+      | `"bool"` | `boolean` |
+      | `"int"` | `integer` |
+      | `"string"` | `string` |
+      | `"string_list"` | `string[]` |
+    </ParamField>
+
+    <ParamField path="checks[].observed_at" type="string" required>
+      ISO 8601 timestamp when this check was observed.
+    </ParamField>
+
+    <ParamField path="checks[].source" type="string" required>
+      The system tool or API used to collect this check (e.g. `"fdesetup"`, `"systemctl"`, `"registry"`).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### CheckResult value format
+
+The `value` field uses a tagged union. Always include both `type` and `value`:
+
+```json
+{ "type": "bool", "value": true }
+{ "type": "int", "value": 14 }
+{ "type": "string", "value": "FileVault On" }
+{ "type": "string_list", "value": ["com.apple.security", "com.corp.mdm"] }
+```
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  `true` when the attestation was accepted and stored.
+</ResponseField>
+
+<ResponseField name="config" type="object">
+  Updated collection configuration from the server.
+
+  <Expandable title="properties">
+    <ResponseField name="config.heartbeat_interval_seconds" type="integer">
+      How often the agent should send heartbeats, in seconds.
+    </ResponseField>
+
+    <ResponseField name="config.snapshot_interval_seconds" type="integer">
+      How often the agent should submit attestations, in seconds.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+# Sign the body first with the agent's private key, then:
+curl -X POST https://your-worker.workers.dev/v1/attestations \
+  -H "Content-Type: application/json" \
+  -H "X-Agent-Id: agent_550e8400-e29b-41d4-a716-446655440000" \
+  -H "X-Attestation-Signature: base64signaturehere==" \
+  -d '{
+    "schema_version": "1.0",
+    "attestation_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "collected_at": "2025-04-01T10:00:00Z",
+    "agent": {
+      "name": "open-attest",
+      "version": "0.3.1",
+      "agent_id": "agent_550e8400-e29b-41d4-a716-446655440000"
+    },
+    "device": {
+      "device_id": "dev_12345678-1234-1234-1234-123456789abc",
+      "hostname": "macbook-pro.local",
+      "platform": "macos",
+      "platform_version": "14.4.1",
+      "identity_anchors": {
+        "hardware_uuid": "12345678-1234-1234-1234-123456789abc"
+      }
+    },
+    "user": {
+      "username": "jsmith",
+      "email": "jsmith@example.com"
+    },
+    "checks": [
+      {
+        "key": "disk_encryption.enabled",
+        "value": {"type": "bool", "value": true},
+        "observed_at": "2025-04-01T10:00:00Z",
+        "source": "fdesetup"
+      },
+      {
+        "key": "os.version",
+        "value": {"type": "string", "value": "14.4.1"},
+        "observed_at": "2025-04-01T10:00:00Z",
+        "source": "sw_vers"
+      }
+    ]
+  }'
+```
+
+```json
+{
+  "ok": true,
+  "config": {
+    "snapshot_interval_seconds": 3600,
+    "heartbeat_interval_seconds": 300
+  }
+}
+```
+
+### Error codes
+
+| Code | Meaning |
+|------|---------|
+| `INVALID_SIGNATURE` | The Ed25519 signature did not verify against the request body and agent public key. |
+| `AGENT_REVOKED` | The agent has been revoked and cannot submit attestations. |
+| `VALIDATION_ERROR` | A required field is missing in the payload. |

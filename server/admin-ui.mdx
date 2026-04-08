@@ -1,0 +1,139 @@
+---
+title: "Admin UI"
+description: "Use the admin dashboard to manage devices, tokens, and credentials."
+---
+
+The admin UI is a React SPA served directly by the same Worker as the API. No separate hosting is required.
+
+## Accessing the admin UI
+
+Open your Worker URL in a browser and navigate to `/admin/`:
+
+```
+https://your-worker.workers.dev/admin/
+```
+
+Log in with your `ADMIN_SECRET`. You can also open it directly from an enrolled device:
+
+```bash
+open-attest web
+```
+
+## Dashboard
+
+The dashboard shows a compliance summary across all enrolled devices:
+
+| Metric | Description |
+|---|---|
+| Total devices | All active (non-revoked) enrolled devices. |
+| Compliant | Devices with disk encryption, firewall, and screen lock password all enabled. |
+| Non-compliant | Devices missing one or more required checks. |
+| Online | Devices that sent a heartbeat in the last 15 minutes. |
+| Offline | Devices with no heartbeat in the last 15 minutes. |
+
+Use this view for a quick compliance posture snapshot before an audit or a team review.
+
+## Device list
+
+The **Devices** section lists all enrolled devices. For each device you can see:
+
+- Hostname and platform (macOS, Windows, Linux)
+- Last seen time (based on the most recent heartbeat)
+- Compliance status (compliant / non-compliant)
+
+Click any device to open its detail view.
+
+## Device detail
+
+The device detail page shows the current posture check values for a specific device and the timestamp of the last attestation.
+
+Posture checks shown include:
+
+- Disk encryption (`disk_encryption.enabled`)
+- Firewall (`firewall.enabled`)
+- Screen lock timeout (`screen_lock.timeout_minutes`)
+- Screen lock password required (`screen_lock.password_required`)
+- Login password set (`password.enabled`)
+- Password minimum length (`password_policy.min_length`)
+- OS version (`os.version`)
+- Hostname and primary user
+- MDM enrollment (`mdm.enrolled`)
+- EDR / antivirus presence (`edr.present`)
+- Local admin status (`local_admin.is_admin`)
+
+Each check shows its current value and a pass/fail/warning status based on the default compliance thresholds. See [Compliance rules](/agent/compliance-rules) for the full threshold reference.
+
+## Credentials
+
+The **Credentials** section is where you manage enrollment tokens and API keys.
+
+### Enrollment tokens
+
+Enrollment tokens authorize devices to register with the server. Each token has a configurable max use count and TTL.
+
+From the Credentials section you can:
+
+- Create a new token with a max device count and expiry
+- See the enrollment URL for any token to share with employees
+- View token usage (how many devices have enrolled vs. the limit)
+- See whether a token is active, exhausted, or expired
+
+### API keys
+
+API keys allow external systems — GRC tools, Screenata, custom scripts — to query device posture data via the API.
+
+From the Credentials section you can:
+
+- Create a new API key with a descriptive label
+- View existing keys by label (the key value itself is not shown after creation)
+- Delete an API key to revoke access for a specific integration
+
+## Onboarding new employees
+
+<Steps>
+
+<Step title="Create an enrollment token">
+  Go to **Credentials** → **Enrollment Tokens** → **Create Enrollment Token**.
+</Step>
+
+<Step title="Set max_uses">
+  Enter a **max devices** limit. Use `1` for a single device or a larger number (e.g., `50`) for a batch rollout. Set an expiry that fits your timeline.
+</Step>
+
+<Step title="Share the enrollment URL">
+  Copy the enrollment URL and send it to the employee. They visit the link and follow the on-screen instructions, or use the URL token directly with the CLI:
+
+  ```bash
+  open-attest enroll --token <TOKEN> --server https://your-worker.workers.dev
+  ```
+</Step>
+
+<Step title="Confirm the device appears">
+  After the employee enrolls, refresh the Devices list. The new device appears with its hostname, platform, and compliance status.
+</Step>
+
+</Steps>
+
+## Rotating credentials
+
+**Rotating an API key:**
+
+1. Go to **Credentials** → **API Keys**
+2. Delete the key you want to rotate
+3. Create a new API key with a new label
+4. Update the new key in any external systems that use it
+
+Agents are not affected by API key rotation — they authenticate using Ed25519 signatures, not API keys.
+
+**Rotating ADMIN_SECRET:**
+
+```bash
+wrangler secret put ADMIN_SECRET
+```
+
+The new secret takes effect immediately. You will need to log into the admin UI again using the new secret.
+
+<Note>
+  The admin UI is a React SPA. All state is server-side — refreshing the page or
+  logging out does not affect enrolled devices or stored data.
+</Note>

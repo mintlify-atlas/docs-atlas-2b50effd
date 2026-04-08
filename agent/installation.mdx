@@ -1,0 +1,170 @@
+---
+title: "Installation"
+description: "Install the open-attest agent on macOS, Windows, or Linux."
+---
+
+The open-attest agent runs silently in the background, collects posture checks, and submits signed attestations to your server. Installation takes less than a minute.
+
+## Prerequisites
+
+- An **enrollment token** from the admin UI (Credentials → Create Enrollment Token)
+- The **server URL** for your deployed open-attest instance (e.g. `https://open-attest-server.your-subdomain.workers.dev`)
+
+## Option 1: Enrollment link
+
+The easiest path for teams. After creating an enrollment token in the admin UI, copy the enrollment link and share it with employees. The link has the form:
+
+```
+https://your-worker.workers.dev/enroll/<token>
+```
+
+Clicking the link opens a page with platform-specific install instructions and a pre-filled enroll command. Employees paste one command into their terminal and enrollment is complete.
+
+## Option 2: Manual install
+
+Download the binary for your platform from the releases page, then run `enroll` directly.
+
+<Tabs>
+  <Tab title="macOS">
+    <Steps>
+      <Step title="Download the binary">
+        Download the latest `open-attest-macos` binary from the releases page and move it to a directory on your `PATH`:
+
+        ```bash
+        sudo mv open-attest-macos /usr/local/bin/open-attest
+        sudo chmod +x /usr/local/bin/open-attest
+        ```
+      </Step>
+      <Step title="Enroll the device">
+        ```bash
+        open-attest enroll --token <TOKEN> --server https://your-worker.workers.dev
+        ```
+
+        Expected output:
+
+        ```
+        Enrolled successfully!
+          Agent ID:  agt_01j9xkr2p4q8w3n7v6m5b0c1d2
+          Key ID:    key_01j9xkr2p4q8w3n7v6m5b0c1d3
+          Org ID:    org_01j8abc123def456ghi789jkl0
+        LaunchAgent installed: /Users/alice/Library/LaunchAgents/com.open-attest.agent.plist
+        ```
+      </Step>
+      <Step title="Verify enrollment">
+        ```bash
+        open-attest status
+        ```
+      </Step>
+    </Steps>
+
+    <Note>
+      On macOS the agent installs a LaunchAgent plist at `~/Library/LaunchAgents/com.open-attest.agent.plist`. The daemon starts immediately and runs `open-attest daemon` on every login, keeping itself alive with `KeepAlive = true`. Logs are written to `/tmp/open-attest.stdout.log` and `/tmp/open-attest.stderr.log`.
+    </Note>
+  </Tab>
+  <Tab title="Windows">
+    <Steps>
+      <Step title="Download the binary">
+        Download `open-attest-windows.exe` from the releases page. Place it in `C:\Program Files\open-attest\` and add that directory to your `PATH`, or run it from its download location.
+      </Step>
+      <Step title="Enroll the device">
+        Open PowerShell as a regular user (administrator not required for enrollment):
+
+        ```powershell
+        open-attest enroll --token <TOKEN> --server https://your-worker.workers.dev
+        ```
+      </Step>
+      <Step title="Verify enrollment">
+        ```powershell
+        open-attest status
+        ```
+      </Step>
+    </Steps>
+
+    <Note>
+      On Windows the agent installs itself as a background service that starts on boot. The service runs `open-attest daemon` and restarts automatically if it exits.
+    </Note>
+  </Tab>
+  <Tab title="Linux">
+    <Steps>
+      <Step title="Download the binary">
+        ```bash
+        sudo mv open-attest-linux /usr/local/bin/open-attest
+        sudo chmod +x /usr/local/bin/open-attest
+        ```
+      </Step>
+      <Step title="Enroll the device">
+        ```bash
+        open-attest enroll --token <TOKEN> --server https://your-worker.workers.dev
+        ```
+      </Step>
+      <Step title="Verify enrollment">
+        ```bash
+        open-attest status
+        ```
+      </Step>
+    </Steps>
+
+    <Note>
+      On Linux the agent installs a systemd user service that starts on login and restarts automatically. The unit runs `open-attest daemon`.
+    </Note>
+  </Tab>
+</Tabs>
+
+## What happens during enrollment
+
+<Steps>
+  <Step title="Keypair generation">
+    The agent generates an Ed25519 keypair and stores the private key in its config directory (`~/.config/open-attest/` on macOS/Linux).
+  </Step>
+  <Step title="Registration">
+    The agent sends an enrollment request to the server containing the public key, hostname, platform version, and hardware UUID. The server validates the token, creates an agent record, and returns the assigned `agent_id`, `key_id`, and `org_id`.
+  </Step>
+  <Step title="Config saved">
+    The server URL, agent ID, device ID, key ID, org ID, and polling intervals are written to the local config file.
+  </Step>
+  <Step title="Daemon installed">
+    The agent installs and loads the platform background service (LaunchAgent on macOS, systemd unit on Linux, Windows service on Windows). The daemon starts immediately.
+  </Step>
+</Steps>
+
+## Verify installation
+
+```bash
+open-attest status
+```
+
+```
+Agent Status:
+  Agent ID:   agt_01j9xkr2p4q8w3n7v6m5b0c1d2
+  Device ID:  550e8400-e29b-41d4-a716-446655440000
+  Server:     https://open-attest-server.your-subdomain.workers.dev
+  Org ID:     org_01j8abc123def456ghi789jkl0
+  Key ID:     key_01j9xkr2p4q8w3n7v6m5b0c1d3
+  Heartbeat:  300s
+  Snapshot:   3600s
+```
+
+Run a posture check to confirm collection is working:
+
+```bash
+open-attest check
+```
+
+## Uninstall
+
+```bash
+open-attest uninstall
+```
+
+This stops and removes the background daemon and deletes the agent config directory (including the signing key). The device record on the server is preserved; revoke it from the admin UI if needed.
+
+## macOS .pkg installer
+
+For distributing to non-technical users without terminal access, you can build a `.pkg` installer that bundles the binary and auto-enrolls during install:
+
+```bash
+cd agent/pkg
+./build-pkg.sh --token <TOKEN> --server https://your-worker.workers.dev
+```
+
+See the [Building a .pkg installer](/guides/pkg-installer) guide for details.

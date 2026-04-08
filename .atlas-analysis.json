@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "open-attest",
+  "projectType": "saas",
+  "projectName": "open-attest",
+  "projectDescription": "Open-source endpoint attestation for SOC 2 compliance — deploy a Cloudflare Workers server, install a Rust agent on employee laptops, and get signed posture evidence flowing in minutes.",
   "theme": "luma",
-  "colors": {
-    "primary": "#2563EB",
-    "light": "#DBEAFE",
-    "dark": "#1E3A8A"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/screenata/open-attest"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/screenata/open-attest"
-    }
-  },
+  "primaryColor": "#2563EB",
+  "lightColor": "#DBEAFE",
+  "darkColor": "#1E3A8A",
   "navigation": {
     "tabs": [
       {
@@ -98,5 +86,40 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Ed25519-signed attestations — tamper-evident posture records, verifiable by auditors",
+    "13 posture checks across macOS, Windows, and Linux (disk encryption, firewall, EDR, screen lock, and more)",
+    "Zero-infrastructure server on Cloudflare Workers + D1 — free tier covers ~50 devices",
+    "One-command agent enrollment with automatic daemon installation",
+    "Compliance drift detection — immediate attestation on posture change",
+    "Admin UI with device list, compliance status, and credential management",
+    "Offline-resilient retry queue — attestations queued and replayed when connectivity returns",
+    "Cloudflare Access integration for SSO/MFA protection of the admin UI"
+  ],
+  "publicApiSurface": [
+    "GET /health",
+    "GET /enroll/:token",
+    "POST /v1/agents/enroll",
+    "POST /v1/agents/revoke",
+    "POST /v1/agents/rekey",
+    "POST /v1/attestations",
+    "POST /v1/heartbeat",
+    "GET /v1/devices",
+    "GET /v1/devices/:id",
+    "GET /v1/attestations/:id",
+    "POST /v1/admin/api-keys",
+    "GET /v1/admin/api-keys",
+    "DELETE /v1/admin/api-keys",
+    "POST /v1/admin/tokens",
+    "GET /v1/admin/tokens",
+    "GET /v1/admin/status",
+    "open-attest enroll --token <TOKEN> --server <URL>",
+    "open-attest status",
+    "open-attest check [--json]",
+    "open-attest attest",
+    "open-attest web",
+    "open-attest uninstall",
+    "open-attest daemon"
+  ]
 }

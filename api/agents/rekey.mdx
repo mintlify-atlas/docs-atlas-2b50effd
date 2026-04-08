@@ -1,0 +1,74 @@
+---
+title: "Rotate signing key"
+description: "Replace the agent's Ed25519 public key with a new one."
+---
+
+<Note>
+  The `open-attest` CLI calls this endpoint automatically. You only need to call it directly if you're building a custom agent or integration.
+</Note>
+
+Rekeying allows an agent to rotate its Ed25519 keypair without re-enrolling. The request must be signed with the **current** private key. Once the server accepts the new key, the old key is immediately invalidated — all subsequent requests must be signed with the new key.
+
+<Warning>
+  The old key is invalidated as soon as `rekey` succeeds. Ensure the agent has securely stored the new private key before calling this endpoint.
+</Warning>
+
+---
+
+## Rotate the agent signing key
+
+<br />
+
+**POST** `/v1/agents/rekey`
+
+### Authentication
+
+Sign the raw request body with the agent's **current** Ed25519 private key and include the following headers:
+
+| Header | Value |
+|--------|-------|
+| `X-Agent-Id` | The `agent_id` returned at enrollment. |
+| `X-Attestation-Signature` | Base64-encoded Ed25519 signature over the raw request body bytes, signed with the **current** key. |
+
+### Request
+
+<ParamField path="new_public_key" type="string" required>
+  Base64-encoded Ed25519 public key to register as the agent's new signing key.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  `true` when the key was successfully rotated.
+</ResponseField>
+
+<ResponseField name="key_id" type="string">
+  The new `key_id` assigned to the registered public key (e.g. `key_<uuid>`). Store this alongside the new private key.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://your-worker.workers.dev/v1/agents/rekey \
+  -H "Content-Type: application/json" \
+  -H "X-Agent-Id: agent_550e8400-e29b-41d4-a716-446655440000" \
+  -H "X-Attestation-Signature: base64signatureHere==" \
+  -d '{
+    "new_public_key": "newBase64encodedEd25519PublicKey=="
+  }'
+```
+
+```json
+{
+  "ok": true,
+  "key_id": "key_9f2b4c1e-83a7-4d56-b92e-44f1e2d09c8a"
+}
+```
+
+### Error codes
+
+| Code | Meaning |
+|------|---------|
+| `INVALID_SIGNATURE` | The signature did not verify against the current public key. |
+| `AGENT_REVOKED` | The agent has been revoked and cannot rekey. |
+| `VALIDATION_ERROR` | The `new_public_key` field is missing. |

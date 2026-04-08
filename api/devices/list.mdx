@@ -1,0 +1,134 @@
+---
+title: "List devices"
+description: "Retrieve a paginated list of all enrolled devices."
+---
+
+Returns all devices (agents) known to the server, ordered by enrollment date. Each device record includes its current status, platform information, and the last time the server received a heartbeat or attestation from it.
+
+---
+
+## List all devices
+
+<br />
+
+**GET** `/v1/devices`
+
+### Authentication
+
+Requires an admin API key in the `Authorization` header:
+
+```
+Authorization: Bearer <API_KEY>
+```
+
+See [API keys](/api/admin/api-keys) for how to create an API key.
+
+### Query parameters
+
+<ParamField path="limit" type="integer" default="50">
+  Maximum number of devices to return. Minimum `1`, maximum `200`. Defaults to `50`.
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Pagination cursor from the previous response's `next_cursor` field. Omit to start from the beginning.
+</ParamField>
+
+### Response
+
+<ResponseField name="devices" type="object[]">
+  Array of device records.
+
+  <Expandable title="properties">
+    <ResponseField name="agent_id" type="string">
+      Unique agent identifier (e.g. `agent_<uuid>`).
+    </ResponseField>
+
+    <ResponseField name="org_id" type="string">
+      Organization this device belongs to.
+    </ResponseField>
+
+    <ResponseField name="public_key" type="string">
+      Base64-encoded Ed25519 public key currently registered for this agent.
+    </ResponseField>
+
+    <ResponseField name="key_id" type="string">
+      Identifier for the current registered public key (e.g. `key_<uuid>`).
+    </ResponseField>
+
+    <ResponseField name="hostname" type="string">
+      Device hostname as reported at enrollment or most recent attestation.
+    </ResponseField>
+
+    <ResponseField name="platform" type="string">
+      Operating system: `macos`, `windows`, or `linux`.
+    </ResponseField>
+
+    <ResponseField name="platform_version" type="string">
+      OS version string (e.g. `"14.4.1"`).
+    </ResponseField>
+
+    <ResponseField name="device_id" type="string">
+      Stable device identifier (e.g. `dev_<uuid>`). Persists across re-enrollments when a hardware UUID is known.
+    </ResponseField>
+
+    <ResponseField name="status" type="string">
+      Current agent status. One of `active` or `revoked`.
+    </ResponseField>
+
+    <ResponseField name="enrolled_at" type="string">
+      ISO 8601 timestamp of when the device first enrolled.
+    </ResponseField>
+
+    <ResponseField name="last_seen_at" type="string | null">
+      ISO 8601 timestamp of the most recent heartbeat or attestation. `null` if the device has never checked in after enrollment.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="next_cursor" type="string | null">
+  Base64-encoded cursor to retrieve the next page of results. `null` when there are no more results.
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://your-worker.workers.dev/v1/devices?limit=2" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+```json
+{
+  "devices": [
+    {
+      "agent_id": "agent_550e8400-e29b-41d4-a716-446655440000",
+      "org_id": "acme",
+      "hostname": "macbook-pro.local",
+      "platform": "macos",
+      "platform_version": "14.4.1",
+      "device_id": "dev_12345678-1234-1234-1234-123456789abc",
+      "status": "active",
+      "enrolled_at": "2025-04-01T09:00:00.000Z",
+      "last_seen_at": "2025-04-01T10:05:00.000Z"
+    },
+    {
+      "agent_id": "agent_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "org_id": "acme",
+      "hostname": "dev-linux-01",
+      "platform": "linux",
+      "platform_version": "6.5.0",
+      "device_id": "dev_9f2b4c1e-83a7-4d56-b92e-44f1e2d09c8a",
+      "status": "active",
+      "enrolled_at": "2025-03-28T14:00:00.000Z",
+      "last_seen_at": "2025-04-01T10:00:00.000Z"
+    }
+  ],
+  "next_cursor": "eyJlbnJvbGxlZF9hdCI6IjIwMjUtMDMtMjhUMTQ6MDA6MDAuMDAwWiJ9"
+}
+```
+
+To fetch the next page, pass the cursor:
+
+```bash
+curl "https://your-worker.workers.dev/v1/devices?limit=2&cursor=eyJlbnJvbGxlZF9hdCI6IjIwMjUtMDMtMjhUMTQ6MDA6MDAuMDAwWiJ9" \
+  -H "Authorization: Bearer $API_KEY"
+```

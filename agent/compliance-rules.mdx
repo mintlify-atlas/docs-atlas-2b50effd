@@ -1,0 +1,102 @@
+---
+title: "Compliance rules"
+description: "How open-attest evaluates posture checks against SOC 2 thresholds."
+---
+
+After collecting posture checks, the agent evaluates each one against a set of default thresholds. The result is a `STATUS` column shown in `open-attest check` output and reflected in the admin UI's device compliance view.
+
+## Status values
+
+| Status | Meaning |
+|--------|---------|
+| `PASS` | The check meets the threshold |
+| `FAIL` | The check fails a required threshold — counts against device compliance |
+| `WARN` | The check fails a recommended threshold — noted but does not block compliance |
+| `—` | No threshold is defined; the check is informational only |
+
+## Evaluation logic
+
+The `evaluate_compliance` function in `main.rs` maps each check key to a status. Checks not listed return `None` (displayed as `—`).
+
+```
+disk_encryption.enabled      bool == true  → PASS / FAIL
+firewall.enabled             bool == true  → PASS / FAIL
+screen_lock.password_required bool == true → PASS / FAIL
+password.enabled             bool == true  → PASS / FAIL
+edr.present                  bool == true  → PASS / WARN  (warning, not failure)
+screen_lock.timeout_minutes  int > 0 && <= 15 → PASS / FAIL
+password_policy.min_length   int >= 8     → PASS / FAIL
+```
+
+## Rules table
+
+| Check key | Threshold | PASS condition | FAIL / WARN |
+|-----------|-----------|----------------|-------------|
+| `disk_encryption.enabled` | Required | `true` | `false` → **FAIL** |
+| `firewall.enabled` | Required | `true` | `false` → **FAIL** |
+| `screen_lock.password_required` | Required | `true` | `false` → **FAIL** |
+| `password.enabled` | Required | `true` | `false` → **FAIL** |
+| `screen_lock.timeout_minutes` | Required | `> 0` and `<= 15` | otherwise → **FAIL** |
+| `password_policy.min_length` | Required | `>= 8` | `< 8` → **FAIL** |
+| `edr.present` | Recommended | `true` | `false` → **WARN** |
+| `local_admin.is_admin` | Recommended | `false` (user is not admin) | `true` → **WARN** |
+| `os.version` | Informational | — | — |
+| `hostname` | Informational | — | — |
+| `user.primary` | Informational | — | — |
+| `mdm.enrolled` | Informational | — | — |
+
+<Note>
+  The `local_admin.is_admin` check does not appear in `evaluate_compliance` because the logic is inverted — the README states a warning is raised when the user **is** an admin. The raw bool value is always shown; custom thresholds in Screenata can apply a WARN when `local_admin.is_admin == true`.
+</Note>
+
+## WARN vs FAIL
+
+`WARN` statuses count toward the summary line but do not affect the device's pass/fail compliance determination as tracked by the server. The server's compliance summary counts a device as compliant when the four hard-required checks pass:
+
+- `disk_encryption.enabled`
+- `firewall.enabled`
+- `screen_lock.password_required`
+- `password.enabled`
+
+`WARN` checks (`edr.present`, `local_admin.is_admin`) are surfaced as advisory findings. For SOC 2 evidence purposes they indicate a posture improvement opportunity but do not block a device from appearing compliant in the admin dashboard.
+
+## check output format
+
+`open-attest check` prints a fixed-width table:
+
+```
+CHECK                               VALUE                          STATUS
+---------------------------------------------------------------------------
+disk_encryption.enabled             true                           PASS
+firewall.enabled                    true                           PASS
+screen_lock.timeout_minutes         5                              PASS
+screen_lock.password_required       true                           PASS
+password.enabled                    true                           PASS
+password_policy.min_length          8                              PASS
+os.version                          macOS 14.4.1                   —
+hostname                            alice-mbp.local                —
+user.primary                        alice                          —
+mdm.enrolled                        false                          —
+edr.present                         false                          WARN
+local_admin.is_admin                false                          —
+
+6/7 checks passing, 0 failing, 1 warnings
+```
+
+The summary line format is:
+
+```
+<passing>/<total_evaluated> checks passing, <failing> failing, <warnings> warnings
+```
+
+`total_evaluated` is the count of checks that have a threshold (PASS, FAIL, or WARN) — informational checks (status `—`) are not included in this total.
+
+## screen_lock.timeout_minutes edge cases
+
+A value of `0` means the screensaver is disabled (no idle timeout). This evaluates as **FAIL** because the threshold requires `> 0 && <= 15`. A value of `-1` means the agent could not determine the timeout (command unavailable or no desktop environment); this also evaluates as **FAIL**.
+
+A timeout greater than 15 minutes also evaluates as **FAIL** — SOC 2 commonly requires a maximum idle time of 15 minutes.
+
+## Custom thresholds
+
+The rules above are the open-attest defaults, implemented directly in the agent binary. [Screenata](https://screenata.com) allows you to configure per-org thresholds — for example, requiring EDR as a hard FAIL, adjusting the minimum password length, or tightening the screen lock timeout limit — and maps check results to specific SOC 2 controls for evidence generation.

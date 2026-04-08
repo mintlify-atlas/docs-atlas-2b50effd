@@ -1,0 +1,256 @@
+---
+title: "CLI commands"
+description: "All open-attest CLI commands and their options."
+---
+
+The `open-attest` binary is the single entry point for enrollment, status checks, manual attestation, and administration. All commands are available on macOS, Windows, and Linux.
+
+```bash
+open-attest <COMMAND> [OPTIONS]
+```
+
+<AccordionGroup>
+  <Accordion title="enroll — enroll this device">
+    Register this device with an open-attest server using an enrollment token.
+
+    **Usage**
+
+    ```bash
+    open-attest enroll --token <TOKEN> --server <URL>
+    ```
+
+    **Flags**
+
+    | Flag | Required | Description |
+    |------|----------|-------------|
+    | `--token <TOKEN>` | Yes | Enrollment token obtained from the admin UI (Credentials → Create Enrollment Token) |
+    | `--server <URL>` | Yes | Base URL of the open-attest server, e.g. `https://open-attest-server.your-subdomain.workers.dev` |
+
+    **What it does**
+
+    1. Generates an Ed25519 keypair and stores it locally
+    2. Sends the public key, hostname, platform, and hardware UUID to the server
+    3. Writes the returned `agent_id`, `key_id`, and `org_id` to the local config
+    4. Installs and starts the background daemon
+
+    **Example**
+
+    ```bash
+    open-attest enroll \
+      --token tok_01j9xkr2abcdef \
+      --server https://open-attest-server.acme.workers.dev
+    ```
+
+    ```
+    Enrolled successfully!
+      Agent ID:  agt_01j9xkr2p4q8w3n7v6m5b0c1d2
+      Key ID:    key_01j9xkr2p4q8w3n7v6m5b0c1d3
+      Org ID:    org_01j8abc123def456ghi789jkl0
+    LaunchAgent installed: /Users/alice/Library/LaunchAgents/com.open-attest.agent.plist
+    ```
+
+    <Warning>
+      If the agent is already enrolled, this command exits with an error. Run `open-attest uninstall` first to re-enroll.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="status — show enrollment status">
+    Display the current agent configuration and polling intervals.
+
+    **Usage**
+
+    ```bash
+    open-attest status
+    ```
+
+    **No flags.**
+
+    **Example output**
+
+    ```
+    Agent Status:
+      Agent ID:   agt_01j9xkr2p4q8w3n7v6m5b0c1d2
+      Device ID:  550e8400-e29b-41d4-a716-446655440000
+      Server:     https://open-attest-server.acme.workers.dev
+      Org ID:     org_01j8abc123def456ghi789jkl0
+      Key ID:     key_01j9xkr2p4q8w3n7v6m5b0c1d3
+      Heartbeat:  300s
+      Snapshot:   3600s
+    ```
+
+    If the agent has not been enrolled:
+
+    ```
+    Agent is not enrolled.
+    ```
+
+    **Fields**
+
+    | Field | Description |
+    |-------|-------------|
+    | Agent ID | Server-assigned identifier for this agent instance |
+    | Device ID | Hardware UUID (or a generated UUID if unavailable) |
+    | Server | URL of the open-attest server |
+    | Org ID | Organization this device is enrolled into |
+    | Key ID | Identifier for the current signing keypair |
+    | Heartbeat | How often the daemon sends a liveness ping (seconds) |
+    | Snapshot | How often the daemon submits a full attestation (seconds) |
+  </Accordion>
+
+  <Accordion title="check — run posture checks">
+    Collect all posture checks and display a pass/fail table. Does not submit anything to the server.
+
+    **Usage**
+
+    ```bash
+    open-attest check [--json]
+    ```
+
+    **Flags**
+
+    | Flag | Description |
+    |------|-------------|
+    | `--json` | Output raw JSON array of `CheckResult` objects instead of the human-readable table |
+
+    **Example output (table)**
+
+    ```
+    CHECK                               VALUE                          STATUS
+    ---------------------------------------------------------------------------
+    disk_encryption.enabled             true                           PASS
+    firewall.enabled                    true                           PASS
+    screen_lock.timeout_minutes         5                              PASS
+    screen_lock.password_required       true                           PASS
+    password.enabled                    true                           PASS
+    password_policy.min_length          8                              PASS
+    os.version                          macOS 14.4.1                   —
+    hostname                            alice-mbp.local                —
+    user.primary                        alice                          —
+    mdm.enrolled                        false                          —
+    edr.present                         true                           PASS
+    local_admin.is_admin                false                          —
+
+    7/7 checks passing, 0 failing, 0 warnings
+    ```
+
+    **Example output (--json)**
+
+    ```json
+    [
+      {
+        "key": "disk_encryption.enabled",
+        "value": { "type": "bool", "value": true },
+        "observed_at": "2025-04-01T10:00:00Z",
+        "source": "fdesetup"
+      },
+      {
+        "key": "firewall.enabled",
+        "value": { "type": "bool", "value": true },
+        "observed_at": "2025-04-01T10:00:00Z",
+        "source": "defaults_read"
+      }
+    ]
+    ```
+
+    <Tip>
+      Use `--json` to pipe check results into scripts or other tools. The schema is described in [Posture checks](/agent/posture-checks).
+    </Tip>
+  </Accordion>
+
+  <Accordion title="attest — submit an attestation now">
+    Collect all posture checks, sign the payload with the device's Ed25519 key, and submit it to the server immediately. Useful for forcing an attestation outside the normal snapshot interval.
+
+    **Usage**
+
+    ```bash
+    open-attest attest
+    ```
+
+    **No flags.**
+
+    **Example output**
+
+    ```
+    Attestation submitted successfully.
+    ```
+
+    If the server returns updated polling intervals:
+
+    ```
+    Attestation submitted successfully.
+      Updated intervals: heartbeat=300s, snapshot=1800s
+    ```
+
+    <Note>
+      The agent must be enrolled before running this command. If the signing key is missing, the command exits with an error.
+    </Note>
+  </Accordion>
+
+  <Accordion title="web — open admin UI">
+    Open the admin UI in your default browser. Reads the server URL from the local agent config and opens `<server_url>/admin/`.
+
+    **Usage**
+
+    ```bash
+    open-attest web
+    ```
+
+    **No flags.**
+
+    On macOS this runs `open <url>`, on Windows `cmd /c start <url>`, on Linux `xdg-open <url>`.
+  </Accordion>
+
+  <Accordion title="uninstall — remove agent and daemon">
+    Stop and remove the background daemon, then delete the agent config directory (including the signing key).
+
+    **Usage**
+
+    ```bash
+    open-attest uninstall
+    ```
+
+    **No flags.**
+
+    **Example output**
+
+    ```
+    LaunchAgent removed: /Users/alice/Library/LaunchAgents/com.open-attest.agent.plist
+    Removed config directory: /Users/alice/.config/open-attest
+    Agent uninstalled successfully.
+    ```
+
+    <Warning>
+      Uninstalling removes the signing key permanently. The device record on the server is not deleted — revoke the agent from the admin UI if you want to prevent it from re-enrolling with the same token.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="daemon — run in daemon mode (internal)">
+    Run the agent in daemon mode: send periodic heartbeats, submit scheduled attestations, and detect posture drift.
+
+    **Usage**
+
+    ```bash
+    open-attest daemon
+    ```
+
+    **No flags.**
+
+    This command is called by the platform background service (LaunchAgent plist, systemd unit, or Windows service) installed during `enroll`. You do not normally run it manually.
+
+    **Daemon behavior**
+
+    | Timer | Default interval | Action |
+    |-------|-----------------|--------|
+    | Heartbeat | 300 s (5 min) | Send a signed liveness ping to `/v1/heartbeat` |
+    | Snapshot | 3600 s (1 hr) | Collect all checks, sign, and submit to `/v1/attestations` |
+    | Drift check | 600 s (10 min) | Compare current checks against the last snapshot; submit an immediate attestation if any value changed |
+
+    Intervals are set by the server at enrollment and may be updated in subsequent attestation responses.
+
+    If an attestation submission fails (e.g. network is down), the payload is written to a local retry queue. The next successful heartbeat drains the queue and delivers queued attestations in order. Entries older than 7 days are evicted automatically.
+
+    <Note>
+      Daemon output (heartbeats, attestations, drift events) goes to stderr. On macOS this is captured in `/tmp/open-attest.stderr.log`.
+    </Note>
+  </Accordion>
+</AccordionGroup>

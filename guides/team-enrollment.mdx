@@ -1,0 +1,100 @@
+---
+title: "Team enrollment"
+description: "How to roll out open-attest to your entire team."
+---
+
+Rolling out open-attest to your team comes down to two strategies: share an enrollment link that technical users follow themselves, or build a macOS `.pkg` installer that handles everything silently for non-technical employees. Both methods use the same enrollment tokens.
+
+## Create an enrollment token
+
+Before distributing the agent, create a token from the admin UI.
+
+<Steps>
+  <Step title="Open the admin UI">
+    Navigate to `https://your-worker.workers.dev/admin/` and log in with your admin secret.
+  </Step>
+  <Step title="Create an enrollment token">
+    Go to **Credentials** → **Create Enrollment Token**.
+
+    Set `max_uses` to the number of devices you expect to enroll. For a 50-person team, set `max_uses = 50`. A single token can cover your entire team — each device consumes one use when it enrolls.
+  </Step>
+  <Step title="Copy the enrollment link">
+    The admin UI shows the full enrollment URL:
+
+    ```
+    https://your-worker.workers.dev/enroll/<token>
+    ```
+
+    Copy this link to share with your team.
+  </Step>
+</Steps>
+
+<Note>
+  Tokens with a `max_uses` cap stop accepting new enrollments once the limit is reached. Create a new token if you hire additional people later.
+</Note>
+
+## Enrollment strategies
+
+### Option 1: Enrollment link (for technical users)
+
+Share the enrollment URL directly. When an employee opens it in their browser, they see a page with instructions and the exact command to run.
+
+They can then run enrollment manually:
+
+```bash
+open-attest enroll --token <TOKEN> --server https://your-worker.workers.dev
+```
+
+The agent generates an Ed25519 keypair, registers with the server, installs a background daemon, and begins reporting automatically. The whole process takes under a minute.
+
+### Option 2: macOS .pkg installer (for non-technical users)
+
+For employees who shouldn't need to touch the command line, build a pre-configured `.pkg` installer. The package installs the binary and runs enrollment automatically on first launch — no terminal required.
+
+See the [macOS .pkg installer guide](/guides/pkg-installer) for step-by-step build instructions.
+
+## Verifying enrollment
+
+Once a device is enrolled, you can confirm from either side.
+
+**From the admin UI:** Go to the **Devices** list at `https://your-worker.workers.dev/admin/`. Enrolled devices appear immediately with their hostname, platform, and last attestation time.
+
+**From the device:** Run `open-attest status` in a terminal:
+
+```bash
+open-attest status
+```
+
+A successfully enrolled device shows output like:
+
+```
+Agent Status:
+  Agent ID:   01966d5c-...
+  Device ID:  A1B2C3D4-...
+  Server:     https://your-worker.workers.dev
+  Org ID:     org_...
+  Key ID:     key_...
+  Heartbeat:  3600s
+  Snapshot:   3600s
+```
+
+If the agent is not enrolled, the command prints `Agent is not enrolled.`
+
+## Revoking a device
+
+If a device is lost, stolen, or an employee leaves, revoke it to stop accepting its attestations.
+
+**From the admin UI:** Find the device in the Devices list and click **Revoke**.
+
+**Via the API:** Send a revocation request using an API key:
+
+```bash
+curl -X POST https://your-worker.workers.dev/v1/agents/revoke \
+  -H "Authorization: Bearer <API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "<AGENT_ID>"}'
+```
+
+<Warning>
+  Revoking a device is permanent. The agent's signing key is invalidated on the server and all future attestations from that device will be rejected. Re-enrollment requires a valid token.
+</Warning>

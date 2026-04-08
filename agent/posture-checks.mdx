@@ -1,0 +1,211 @@
+---
+title: "Posture checks"
+description: "The security posture facts the agent collects from each device."
+---
+
+Every time the agent runs `open-attest check`, `open-attest attest`, or its scheduled daemon snapshot, it calls `collect_all()` — a platform-specific function that runs a set of system commands and returns a list of `CheckResult` values.
+
+## Data types
+
+### CheckResult
+
+Each check produces one `CheckResult`:
+
+```json
+{
+  "key": "disk_encryption.enabled",
+  "value": { "type": "bool", "value": true },
+  "observed_at": "2025-04-01T10:00:00Z",
+  "source": "fdesetup"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `key` | string | Stable dotted identifier for the check |
+| `value` | CheckValue | The observed value (see below) |
+| `observed_at` | ISO 8601 string | Timestamp when the check was run |
+| `source` | string | Tool or file used to collect the value (e.g. `fdesetup`, `ufw`, `registry`) |
+
+### CheckValue
+
+Values are tagged unions serialized with a `type` discriminator:
+
+| Type | JSON | Rust variant | Example |
+|------|------|--------------|---------|
+| `bool` | `{"type":"bool","value":true}` | `CheckValue::Bool` | `true` |
+| `int` | `{"type":"int","value":8}` | `CheckValue::Int` | `8` |
+| `string` | `{"type":"string","value":"14.4.1"}` | `CheckValue::Str` | `"14.4.1"` |
+| `string_list` | `{"type":"string_list","value":["a","b"]}` | `CheckValue::StringList` | `["alice","root"]` |
+
+## Check reference
+
+### disk_encryption.enabled
+
+**Type:** `bool` — whether full-disk encryption is active on the primary drive.
+
+| Platform | Source | Method |
+|----------|--------|--------|
+| macOS | `fdesetup` | `fdesetup status` — passes if output contains `"FileVault is On"` |
+| Windows | PowerShell / manage-bde | `Get-BitLockerVolume -MountPoint C:` checks `ProtectionStatus == On`; falls back to `manage-bde -status C:` |
+| Linux | lsblk / dmsetup / crypttab | Checks for `crypto_LUKS` in `lsblk --json` output, `crypt` in `dmsetup status`, or non-comment entries in `/etc/crypttab` |
+
+---
+
+### firewall.enabled
+
+**Type:** `bool` — whether the host-based firewall is active.
+
+| Platform | Source | Method |
+|----------|--------|--------|
+| macOS | `defaults_read` | Reads `/Library/Preferences/com.apple.alf globalstate`; value `1` or `2` means enabled |
+| Windows | PowerShell | `Get-NetFirewallProfile` — true if any profile has `Enabled: True` |
+| Linux | ufw / iptables / firewalld | `ufw status` for `Status: active`; falls back to iptables rule count > 3; then `firewall-cmd --state` for `running` |
+
+---
+
+### screen_lock.timeout_minutes
+
+**Type:** `int` — screen lock idle timeout in minutes. `-1` means the value could not be determined.
+
+| Platform | Source | Method |
+|----------|--------|--------|
+| macOS | `defaults_read` | `defaults -currentHost read com.apple.screensaver idleTime` (seconds → divided by 60) |
+| Windows | Registry / powercfg | `HKCU\Control Panel\Desktop\ScreenSaveTimeOut` (seconds); falls back to `powercfg /query` AC power display timeout |
+| Linux | gsettings / kreadconfig5 / xfconf-query | Tries GNOME `org.gnome.desktop.session idle-delay`, then KDE `kscreenlockerrc Daemon/Timeout`, then Cinnamon, then XFCE |
+
+---
+
+### screen_lock.password_required
+
+**Type:** `bool` — whether a password is required when the screen unlocks.
+
+| Platform | Source | Method |
+|----------|--------|--------|
+| macOS | `sysadminctl` | `sysadminctl -screenLock status`; falls back to `defaults read com.apple.screensaver askForPassword` |
+| Windows | Registry | `HKCU\Control Panel\Desktop\ScreenSaverIsSecure == 1` |
+| Linux | gsettings / kreadconfig5 / xfconf-query | GNOME `org.gnome.desktop.screensaver lock-enabled`; KDE `kscreenlockerrc Daemon/Autolock`; Cinnamon; XFCE |
+
+---
+
+### password.enabled
+
+**Type:** `bool` — whether the current user's login account has a password set.
+
+| Platform | Source | Method |
+|----------|--------|--------|
+| macOS | `dscl_authonly` | `dscl . -authonly <user> ""` — exits non-zero if a real password exists (empty string does not authenticate) |
+| Windows | `net_user` | `net user <username>` — parses `Password Required` field for `Yes` |
+| Linux | shadow / passwd | Reads `/etc/shadow` password field; `!`, `*`, or `!!` means disabled; falls back to `passwd -S` |
+
+---
+
+### password_policy.min_length
+
+**Type:** `int` — configured minimum password length. `0` means no policy is set or it could not be read.
+
+| Platform | Source | Method |
+|----------|--------|--------|
+| macOS | `pwpolicy` | `pwpolicy getaccountpolicies` and `pwpolicy -getglobalpolicy` — parses `minChars`, `minimumLength`, or `policyAttributePasswordMinimumLength` |
+| Windows | ADSI / net accounts | `([ADSI]'WinNT://localhost').MinPasswordLength.Value`; falls back to `net accounts` output |
+| Linux | pwquality / PAM / login.defs | `/etc/security/pwquality.conf` (`minlen`); `/etc/pam.d/common-password` (`minlen=`); `/etc/login.defs` (`PASS_MIN_LEN`) |
+
+---
+
+### os.version
+
+**Type:** `string` — human-readable OS version string.
+
+| Platform | Source | Example value |
+|----------|--------|---------------|
+| macOS | `sw_vers` | `14.4.1` |
+| Windows | .NET Environment | `10.0.22631.0` |
+| Linux | `/etc/os-release` | `Ubuntu 22.04.3 LTS`; falls back to `uname -r` |
+
+---
+
+### hostname
+
+**Type:** `string` — device hostname.
+
+All platforms run the `hostname` command. Source field is `syscall` on macOS, `hostname_cmd` on Windows and Linux.
+
+---
+
+### user.primary
+
+**Type:** `string` — username of the user running the agent.
+
+All platforms run `whoami`. On Windows this includes the domain prefix (e.g. `DESKTOP-ABC\alice`); the admin check strips the prefix when comparing against the local admin group.
+
+---
+
+### mdm.enrolled
+
+**Type:** `bool` — whether the device is enrolled in an MDM.
+
+| Platform | Source | Method |
+|----------|--------|--------|
+| macOS | `profiles_cmd` | `profiles status -type enrollment` — passes if output contains `"MDM enrollment"` |
+| Windows | `dsregcmd` | `dsregcmd /status` — passes if output contains `MdmUrl` with an `https://` URL |
+| Linux | `not_applicable` | Always reports `false`; MDM enrollment is not applicable on Linux |
+
+---
+
+### edr.present
+
+**Type:** `bool` — whether an EDR or antivirus product is detected.
+
+| Platform | Source | Detection method |
+|----------|--------|-----------------|
+| macOS | `process_scan` | XProtect bundle presence; process scan for CrowdStrike Falcon, SentinelOne, Carbon Black, Sophos, Jamf Protect, MRT, Malwarebytes, Norton, McAfee, ESET, Bitdefender; system extension scan for known vendor bundle IDs |
+| Windows | `security_center` / `windows_defender` | `Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct`; falls back to `Get-MpComputerStatus AntivirusEnabled` |
+| Linux | `process_scan` | Process scan for ClamAV, Falcon, SentinelOne, Sophos, ESET, Bitdefender, McAfee; AppArmor enabled (`aa-status --enabled`); SELinux enforcing (`getenforce`) |
+
+---
+
+### local_admin.is_admin
+
+**Type:** `bool` — whether the current user is a member of the local administrators group.
+
+| Platform | Source | Method |
+|----------|--------|--------|
+| macOS | `dscl` | `dscl . -read /Groups/admin GroupMembership` — checks if `whoami` is in the `GroupMembership` list |
+| Windows | `net_localgroup` | `net localgroup Administrators` — case-insensitive match against the current username |
+| Linux | `etc_group` | Reads `/etc/group` — checks `sudo` or `wheel` group membership |
+
+---
+
+## Additional device info checks
+
+The agent also collects three informational checks about the device hardware. These are not evaluated for compliance.
+
+| Key | Type | Source |
+|-----|------|--------|
+| `device.manufacturer` | string | macOS: `system_profiler` (`"Apple"`); Windows: WMI `Win32_ComputerSystem`; Linux: `/sys/class/dmi/id/sys_vendor` |
+| `device.model` | string | macOS: `system_profiler` model name; Windows: WMI model; Linux: `/sys/class/dmi/id/product_name` |
+| `device.serial_number` | string | macOS: `system_profiler` serial; Windows: WMI `Win32_BIOS`; Linux: `/sys/class/dmi/id/product_serial` |
+
+## Wire format example
+
+A complete `CheckResult` as it appears in an attestation payload and in `open-attest check --json` output:
+
+```json
+{
+  "key": "disk_encryption.enabled",
+  "value": { "type": "bool", "value": true },
+  "observed_at": "2025-04-01T10:00:00Z",
+  "source": "fdesetup"
+}
+```
+
+A `string_list` value (not currently used by core checks, available for future extensions):
+
+```json
+{
+  "key": "some.list_check",
+  "value": { "type": "string_list", "value": ["item1", "item2"] },
+  "observed_at": "2025-04-01T10:00:00Z",
+  "source": "custom"
+}
+```

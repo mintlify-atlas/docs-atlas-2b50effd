@@ -1,0 +1,82 @@
+---
+title: "API overview"
+description: "The open-attest HTTP API — base URL, versioning, request/response format, and error codes."
+---
+
+## Base URL
+
+The API is hosted on Cloudflare Workers. Your base URL is set at deployment time:
+
+```
+https://your-worker.workers.dev
+```
+
+Replace `your-worker` with the subdomain assigned to your Worker, or your custom domain if you've configured one.
+
+## Versioning
+
+All stable endpoints live under the `/v1/` prefix. Endpoints without a version prefix (`/health`, `/enroll/:token`) are utility routes that are not versioned.
+
+## Request and response format
+
+All request bodies and response bodies use JSON. Set the `Content-Type` header on every write request:
+
+```
+Content-Type: application/json
+```
+
+Responses always return `Content-Type: application/json`.
+
+## Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/health` | None | Health check |
+| `GET` | `/enroll/:token` | None | Enrollment page for employees |
+| `POST` | `/v1/admin/api-keys` | Admin secret | Create API key |
+| `GET` | `/v1/admin/api-keys` | Admin secret | List API keys |
+| `DELETE` | `/v1/admin/api-keys` | Admin secret | Delete API key |
+| `POST` | `/v1/admin/tokens` | Admin secret | Create enrollment token |
+| `GET` | `/v1/admin/tokens` | Admin secret | List enrollment tokens |
+| `GET` | `/v1/admin/status` | Admin secret | Server stats and compliance summary |
+| `POST` | `/v1/agents/enroll` | Token | Enroll agent |
+| `POST` | `/v1/agents/revoke` | API key | Revoke agent |
+| `POST` | `/v1/agents/rekey` | Agent signature | Rotate agent key |
+| `POST` | `/v1/attestations` | Agent signature | Submit attestation |
+| `POST` | `/v1/heartbeat` | Agent signature | Send heartbeat |
+| `GET` | `/v1/devices` | API key | List devices |
+| `GET` | `/v1/devices/:id` | API key | Get device |
+| `GET` | `/v1/attestations/:id` | API key | Get attestation |
+
+See the [Authentication](/api/authentication) page for details on each auth method.
+
+## Error format
+
+All errors follow a consistent envelope structure:
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Agent not found",
+    "details": {}
+  }
+}
+```
+
+The `code` field is a machine-readable string. The `message` field is a human-readable description. The `details` field may contain additional context for debugging.
+
+## Error codes
+
+| Code | HTTP status | Description |
+|------|-------------|-------------|
+| `INVALID_REQUEST` | 400 | Malformed request body or missing required fields |
+| `VALIDATION_ERROR` | 400 | Request body failed schema validation |
+| `TOKEN_EXPIRED` | 400 | Enrollment token has passed its TTL |
+| `TOKEN_ALREADY_USED` | 400 | Single-use enrollment token has already been consumed |
+| `INVALID_SIGNATURE` | 401 | Ed25519 signature verification failed |
+| `FORBIDDEN` | 403 | Missing or invalid credentials |
+| `AGENT_REVOKED` | 403 | Agent has been revoked and can no longer submit data |
+| `NOT_FOUND` | 404 | Requested resource does not exist |
+| `ALREADY_ENROLLED` | 409 | Agent is already enrolled |
+| `INTERNAL_ERROR` | 500 | Unexpected server error |

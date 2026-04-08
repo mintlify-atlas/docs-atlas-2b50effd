@@ -1,0 +1,166 @@
+---
+title: "Enrollment tokens"
+description: "Create and list enrollment tokens for onboarding new devices."
+---
+
+Enrollment tokens are single-use (or limited-use) URLs that allow new devices to enroll with the open-attest agent. Tokens are scoped to an organization and expire after a configurable number of hours.
+
+All endpoints require the admin secret in the `Authorization` header.
+
+<Tip>
+  For a batch rollout, set `max_uses` to your team size and share one link. For individual onboarding, set `max_uses` to `1` to generate a unique link per employee.
+</Tip>
+
+---
+
+## Create enrollment token
+
+<br />
+
+**POST** `/v1/admin/tokens`
+
+Generates a new enrollment token and returns a ready-to-share enrollment URL.
+
+### Request
+
+<ParamField path="body.org_id" type="string" required>
+  Organization identifier to associate with this token.
+</ParamField>
+
+<ParamField path="body.expires_in_hours" type="integer" default="24">
+  Number of hours until the token expires. Defaults to `24`.
+</ParamField>
+
+<ParamField path="body.max_uses" type="integer" default="1">
+  Maximum number of devices that can enroll using this token. Defaults to `1`.
+</ParamField>
+
+### Response
+
+<ResponseField name="token" type="string">
+  The enrollment token. Format: `oat_` followed by 32 hex characters. Include this in the enrollment URL or pass it directly to the agent CLI.
+</ResponseField>
+
+<ResponseField name="enroll_url" type="string">
+  Full enrollment URL to share with employees. Opening this URL in the agent CLI starts the enrollment flow.
+</ResponseField>
+
+<ResponseField name="org_id" type="string">
+  The organization this token was created for.
+</ResponseField>
+
+<ResponseField name="expires_at" type="string">
+  ISO 8601 timestamp indicating when the token expires.
+</ResponseField>
+
+<ResponseField name="expires_in_hours" type="integer">
+  How many hours from creation until the token expires.
+</ResponseField>
+
+<ResponseField name="max_uses" type="integer">
+  Maximum number of successful enrollments allowed with this token.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://your-worker.workers.dev/v1/admin/tokens \
+  -H "Authorization: Bearer $ADMIN_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"org_id": "acme", "expires_in_hours": 48, "max_uses": 10}'
+```
+
+```json
+{
+  "token": "oat_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+  "enroll_url": "https://your-worker.workers.dev/enroll/oat_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+  "org_id": "acme",
+  "expires_at": "2026-04-10T10:00:00.000Z",
+  "expires_in_hours": 48,
+  "max_uses": 10
+}
+```
+
+---
+
+## List enrollment tokens
+
+<br />
+
+**GET** `/v1/admin/tokens`
+
+Returns all enrollment tokens for the server, including their current usage status. Token values are never returned in full — only a short prefix is included for identification.
+
+### Response
+
+<ResponseField name="tokens" type="object[]">
+  Array of enrollment token records.
+
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      Internal token ID (e.g. `tok_<uuid>`).
+    </ResponseField>
+
+    <ResponseField name="token_prefix" type="string">
+      First 12 characters of the token followed by `...`. Use this to identify a token in logs or support requests.
+    </ResponseField>
+
+    <ResponseField name="org_id" type="string">
+      Organization this token was created for.
+    </ResponseField>
+
+    <ResponseField name="used" type="boolean">
+      Whether the token has been used at least once.
+    </ResponseField>
+
+    <ResponseField name="revoked" type="boolean">
+      Whether the token has been manually revoked.
+    </ResponseField>
+
+    <ResponseField name="max_uses" type="integer">
+      Maximum number of enrollments this token allows.
+    </ResponseField>
+
+    <ResponseField name="use_count" type="integer">
+      Number of times this token has been used so far.
+    </ResponseField>
+
+    <ResponseField name="expires_at" type="string">
+      ISO 8601 expiry timestamp.
+    </ResponseField>
+
+    <ResponseField name="created_at" type="string">
+      ISO 8601 creation timestamp.
+    </ResponseField>
+
+    <ResponseField name="expired" type="boolean">
+      Computed field. `true` if the current time is past `expires_at`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl https://your-worker.workers.dev/v1/admin/tokens \
+  -H "Authorization: Bearer $ADMIN_SECRET"
+```
+
+```json
+{
+  "tokens": [
+    {
+      "id": "tok_550e8400-e29b-41d4-a716-446655440000",
+      "token_prefix": "oat_a1b2c3d4...",
+      "org_id": "acme",
+      "used": true,
+      "revoked": false,
+      "max_uses": 10,
+      "use_count": 3,
+      "expires_at": "2026-04-10T10:00:00.000Z",
+      "created_at": "2026-04-08T10:00:00.000Z",
+      "expired": false
+    }
+  ]
+}
+```

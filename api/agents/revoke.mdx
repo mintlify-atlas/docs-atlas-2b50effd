@@ -1,0 +1,63 @@
+---
+title: "Revoke agent"
+description: "Permanently revoke an agent, blocking all future signed requests from it."
+---
+
+Revoking an agent sets its status to `revoked` and immediately invalidates its public key. Any subsequent heartbeat, attestation, or rekey request signed by that agent will be rejected with `AGENT_REVOKED`.
+
+<Warning>
+  Revocation is permanent. To re-enable the device you must re-enroll it using a new enrollment token. If the device has a known hardware UUID, re-enrollment will reuse its existing `agent_id` and `device_id`.
+</Warning>
+
+---
+
+## Revoke an agent
+
+<br />
+
+**POST** `/v1/agents/revoke`
+
+### Authentication
+
+Requires an admin API key in the `Authorization` header:
+
+```
+Authorization: Bearer <API_KEY>
+```
+
+See [API keys](/api/admin/api-keys) for how to create an API key.
+
+### Request
+
+<ParamField path="agent_id" type="string" required>
+  The `agent_id` of the agent to revoke (e.g. `agent_550e8400-e29b-41d4-a716-446655440000`).
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  `true` when the agent was successfully revoked.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://your-worker.workers.dev/v1/agents/revoke \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "agent_550e8400-e29b-41d4-a716-446655440000"}'
+```
+
+```json
+{
+  "ok": true
+}
+```
+
+### Error codes
+
+| Code | Meaning |
+|------|---------|
+| `FORBIDDEN` | The API key is invalid or not authorized. |
+| `NOT_FOUND` | No agent exists with the given `agent_id`. |
+| `VALIDATION_ERROR` | The `agent_id` field is missing. |

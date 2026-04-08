@@ -1,0 +1,95 @@
+---
+title: "Send heartbeat"
+description: "Notify the server that an agent is alive without submitting a full attestation."
+---
+
+<Note>
+  The `open-attest` CLI calls this endpoint automatically on the configured heartbeat interval. You only need to call it directly if you're building a custom agent or integration.
+</Note>
+
+The heartbeat endpoint lets the agent daemon signal liveness between full attestation snapshots. The server updates the device's `last_seen_at` timestamp on each successful heartbeat. If a device stops sending heartbeats, it will eventually appear as offline in the admin UI.
+
+The default heartbeat interval is **300 seconds** (5 minutes), as returned in `config.heartbeat_interval_seconds` during enrollment or attestation.
+
+---
+
+## Send a heartbeat
+
+<br />
+
+**POST** `/v1/heartbeat`
+
+### Authentication
+
+Sign the raw request body with the agent's Ed25519 private key and include the following headers:
+
+| Header | Value |
+|--------|-------|
+| `X-Agent-Id` | The `agent_id` returned at enrollment. |
+| `X-Attestation-Signature` | Base64-encoded Ed25519 signature over the raw request body bytes. |
+
+### Request
+
+<ParamField path="device_id" type="string" required>
+  The `device_id` assigned to this device at enrollment.
+</ParamField>
+
+<ParamField path="agent_id" type="string" required>
+  The `agent_id` assigned at enrollment. Must match the `X-Agent-Id` header.
+</ParamField>
+
+<ParamField path="timestamp" type="string" required>
+  ISO 8601 timestamp of when the heartbeat was sent (e.g. `"2025-04-01T10:05:00Z"`). The server uses this value to update `last_seen_at`.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  `true` when the heartbeat was accepted.
+</ResponseField>
+
+<ResponseField name="config" type="object">
+  Updated collection configuration. The agent should apply these values for the next interval.
+
+  <Expandable title="properties">
+    <ResponseField name="config.heartbeat_interval_seconds" type="integer">
+      How often to send heartbeats, in seconds.
+    </ResponseField>
+
+    <ResponseField name="config.snapshot_interval_seconds" type="integer">
+      How often to submit full attestation snapshots, in seconds.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://your-worker.workers.dev/v1/heartbeat \
+  -H "Content-Type: application/json" \
+  -H "X-Agent-Id: agent_550e8400-e29b-41d4-a716-446655440000" \
+  -H "X-Attestation-Signature: base64signaturehere==" \
+  -d '{
+    "device_id": "dev_12345678-1234-1234-1234-123456789abc",
+    "agent_id": "agent_550e8400-e29b-41d4-a716-446655440000",
+    "timestamp": "2025-04-01T10:05:00Z"
+  }'
+```
+
+```json
+{
+  "ok": true,
+  "config": {
+    "snapshot_interval_seconds": 3600,
+    "heartbeat_interval_seconds": 300
+  }
+}
+```
+
+### Error codes
+
+| Code | Meaning |
+|------|---------|
+| `INVALID_SIGNATURE` | The Ed25519 signature did not verify. |
+| `AGENT_REVOKED` | The agent has been revoked. |
+| `VALIDATION_ERROR` | The `timestamp` field is missing. |
